@@ -188,6 +188,23 @@ fn sanitize_headers(headers: Option<HashMap<String, String>>) -> Result<HeaderMa
     Ok(map)
 }
 
+/// Find a free TCP port on 127.0.0.1, preferring `preferred` if it's free.
+/// Used to relocate a managed local-model server (e.g. Parakeet) when its
+/// configured port is already held by an unrelated process — binding here
+/// and releasing immediately is racy in principle, but good enough for
+/// picking a port to hand to a child process we spawn right after.
+#[tauri::command]
+pub fn find_free_port(preferred: u16) -> u16 {
+    use std::net::TcpListener;
+    if TcpListener::bind(("127.0.0.1", preferred)).is_ok() {
+        return preferred;
+    }
+    TcpListener::bind(("127.0.0.1", 0))
+        .and_then(|l| l.local_addr())
+        .map(|addr| addr.port())
+        .unwrap_or(preferred)
+}
+
 #[tauri::command]
 pub async fn lm_ping(base_url: String) -> Result<u16, String> {
     let trimmed = base_url.trim().trim_end_matches('/');

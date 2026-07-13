@@ -223,6 +223,16 @@ export function assertLoopbackUrl(baseURL: string, providerName: string): void {
 }
 
 // OpenAI-compatible local Parakeet servers (parakeet-mlx-server, mlx-audio,
+// parakeet-mlx-fastapi) all expose this path; shared with parakeetServer.ts
+// so it can probe the exact endpoint instead of just the base URL.
+export function resolveParakeetTranscriptionEndpoint(baseURL: string): string {
+  const base = baseURL.replace(/\/+$/, "");
+  return base.endsWith("/v1")
+    ? `${base}/audio/transcriptions`
+    : `${base}/v1/audio/transcriptions`;
+}
+
+// OpenAI-compatible local Parakeet servers (parakeet-mlx-server, mlx-audio,
 // parakeet-mlx-fastapi). They differ in response_format support, so parse
 // both plain text and {"text": ...} JSON bodies.
 async function transcribeParakeet(
@@ -230,10 +240,7 @@ async function transcribeParakeet(
   blob: Blob,
   model: string,
 ): Promise<string> {
-  const base = baseURL.replace(/\/+$/, "");
-  const endpoint = base.endsWith("/v1")
-    ? `${base}/audio/transcriptions`
-    : `${base}/v1/audio/transcriptions`;
+  const endpoint = resolveParakeetTranscriptionEndpoint(baseURL);
 
   const wav = await toWav(blob);
   const wavBytes = new Uint8Array(await wav.arrayBuffer());

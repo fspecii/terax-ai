@@ -2,6 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useChatStore } from "../store/chatStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import {
+  setParakeetBaseURL,
+  setParakeetServerCommand,
+} from "@/modules/settings/store";
 import { ensureParakeetServer } from "../lib/parakeetServer";
 import { transcribeAudio, type SttOptions } from "../lib/stt";
 import { PARAKEET_DEFAULT_BASE_URL, type SttProvider } from "../config";
@@ -145,23 +149,45 @@ export function useWhisperRecording({
         }
         setState("transcribing");
         try {
+          let effectiveSttOptions = sttOptions;
           if (sttProvider === "parakeet" && parakeetAutoStart) {
             const base =
               parakeetBaseURL.trim().replace(/\/+$/, "") ||
               PARAKEET_DEFAULT_BASE_URL;
             try {
-              await ensureParakeetServer(base, parakeetServerCommand, () =>
-                toast.loading("Starting Parakeet server...", {
-                  id: PARAKEET_START_TOAST_ID,
-                  description:
-                    "First run downloads the model, this can take a few minutes.",
-                }),
+              const resolved = await ensureParakeetServer(
+                base,
+                parakeetServerCommand,
+                () =>
+                  toast.loading("Starting Parakeet server...", {
+                    id: PARAKEET_START_TOAST_ID,
+                    description:
+                      "First run downloads the model, this can take a few minutes.",
+                  }),
               );
+              if (resolved.baseURL !== base) {
+                // The configured port was already taken by another local
+                // server, so Terax started its own on a free one — persist
+                // it so the next dictation reuses it without re-probing.
+                effectiveSttOptions = {
+                  ...sttOptions,
+                  parakeetBaseURL: resolved.baseURL,
+                };
+                void setParakeetBaseURL(resolved.baseURL);
+                if (resolved.command !== parakeetServerCommand) {
+                  void setParakeetServerCommand(resolved.command);
+                }
+              }
             } finally {
               toast.dismiss(PARAKEET_START_TOAST_ID);
             }
           }
-          const text = await transcribeAudio(blob, sttProvider, apiKeys, sttOptions);
+          const text = await transcribeAudio(
+            blob,
+            sttProvider,
+            apiKeys,
+            effectiveSttOptions,
+          );
           if (text.trim()) onResult(text.trim());
         } catch (e) {
           console.error("stt.transcribe", e);

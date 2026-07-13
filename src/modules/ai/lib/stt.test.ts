@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { assertLoopbackUrl, buildMultipartBody } from "./stt";
+import {
+  assertLoopbackUrl,
+  buildMultipartBody,
+  resolveParakeetTranscriptionEndpoint,
+} from "./stt";
 
 describe("assertLoopbackUrl", () => {
   it.each([
@@ -33,6 +37,35 @@ describe("assertLoopbackUrl", () => {
     expect(() => assertLoopbackUrl("http://example.com", "Whisper.cpp")).toThrow(
       /Whisper\.cpp/,
     );
+  });
+});
+
+describe("resolveParakeetTranscriptionEndpoint", () => {
+  it("appends /v1/audio/transcriptions when the base URL has no /v1 suffix", () => {
+    // #given
+    const baseURL = "http://127.0.0.1:8000";
+    // #when
+    const endpoint = resolveParakeetTranscriptionEndpoint(baseURL);
+    // #then
+    expect(endpoint).toBe("http://127.0.0.1:8000/v1/audio/transcriptions");
+  });
+
+  it("does not duplicate /v1 when the base URL already ends with it", () => {
+    // #given
+    const baseURL = "http://127.0.0.1:8000/v1";
+    // #when
+    const endpoint = resolveParakeetTranscriptionEndpoint(baseURL);
+    // #then
+    expect(endpoint).toBe("http://127.0.0.1:8000/v1/audio/transcriptions");
+  });
+
+  it("strips trailing slashes before resolving", () => {
+    // #given
+    const baseURL = "http://127.0.0.1:8000/v1///";
+    // #when
+    const endpoint = resolveParakeetTranscriptionEndpoint(baseURL);
+    // #then
+    expect(endpoint).toBe("http://127.0.0.1:8000/v1/audio/transcriptions");
   });
 });
 

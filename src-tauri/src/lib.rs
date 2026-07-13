@@ -268,6 +268,7 @@ pub fn run() {
             secrets::secrets_delete,
             secrets::secrets_get_all,
             net::lm_ping,
+            net::find_free_port,
             net::ai_http_request,
             net::ai_http_stream,
             history::history_suggest,
