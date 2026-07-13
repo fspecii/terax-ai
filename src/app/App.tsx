@@ -77,6 +77,7 @@ import {
 import { StatusBar } from "@/modules/statusbar";
 import {
   labelFor,
+  type Tab,
   TabBar,
   TabSwitcherHud,
   useTabSwitcher,
@@ -115,6 +116,17 @@ import { WorkspaceSurface } from "./components/WorkspaceSurface";
 import { useAppCloseGuard } from "./hooks/useAppCloseGuard";
 import { useTabCloseGuards } from "./hooks/useTabCloseGuards";
 import { useWorkspaceSwitcher } from "./hooks/useWorkspaceSwitcher";
+
+function dictationTargetsOf(tabs: Tab[]) {
+  const sessions = useAgentStore.getState().sessions;
+  return tabs
+    .filter((t) => t.kind === "terminal")
+    .map((t) => ({
+      tabId: t.id,
+      label: labelFor(t),
+      agent: !!sessions[t.activeLeafId],
+    }));
+}
 
 export default function App() {
   const {
@@ -475,29 +487,19 @@ export default function App() {
 
   const broadcastDictationTargets = useCallback(() => {
     if (dictationStateRef.current !== "recording") return;
-    const sessions = useAgentStore.getState().sessions;
-    const targets = spaceTabsRef.current
-      .filter((t) => t.kind === "terminal")
-      .map((t) => ({
-        tabId: t.id,
-        label: labelFor(t),
-        agent: !!sessions[t.activeLeafId],
-      }));
     void emit("terax:dictation-targets", {
-      targets,
+      targets: dictationTargetsOf(spaceTabsRef.current),
       activeTabId: activeIdRef.current,
     });
   }, []);
 
   useEffect(() => {
-    broadcastDictationTargets();
-  }, [
-    broadcastDictationTargets,
-    // Re-broadcast on every change that alters the list or the highlight.
-    dictation.state,
-    spaceTabs,
-    activeId,
-  ]);
+    if (dictation.state !== "recording") return;
+    void emit("terax:dictation-targets", {
+      targets: dictationTargetsOf(spaceTabs),
+      activeTabId: activeId,
+    });
+  }, [dictation.state, spaceTabs, activeId]);
 
   // The overlay window loads after the first show; it announces itself so
   // the initial state and target list are not lost to the race.
