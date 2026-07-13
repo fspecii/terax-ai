@@ -1,14 +1,19 @@
-use std::sync::atomic::{AtomicU16, Ordering};
-use std::sync::OnceLock;
-
 /// Global single-key dictation hotkey (e.g. right Option / right Command).
 /// Polls modifier key state system-wide via CGEventSourceKeyState. Since
 /// macOS 10.15 that API only reports keys typed into OTHER apps when the app
 /// holds the Input Monitoring permission, so enabling the hotkey requests it
 /// via IOHIDRequestAccess. A short press-and-release of the configured key
 /// emits `terax:dictation-tap` to the frontend.
+#[cfg(target_os = "macos")]
+use std::sync::atomic::{AtomicU16, Ordering};
+#[cfg(target_os = "macos")]
+use std::sync::OnceLock;
+
+#[cfg(target_os = "macos")]
 static TARGET_KEYCODE: AtomicU16 = AtomicU16::new(0);
+#[cfg(target_os = "macos")]
 static CYCLE_KEYCODE: AtomicU16 = AtomicU16::new(0);
+#[cfg(target_os = "macos")]
 static LISTENER: OnceLock<()> = OnceLock::new();
 
 #[cfg(target_os = "macos")]
