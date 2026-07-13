@@ -99,7 +99,7 @@ import { ThemeProvider, useThemeFileEditing } from "@/modules/theme";
 import { UpdaterDialog } from "@/modules/updater";
 import { useWorkspaceEnvStore, type WorkspaceEnv } from "@/modules/workspace";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { SearchAddon } from "@xterm/addon-search";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -203,7 +203,10 @@ export default function App() {
     term.write(pressEnter ? `${cleaned}\r` : cleaned);
   }, []);
 
-  const dictation = useWhisperRecording({ onResult: handleDictationResult });
+  const dictation = useWhisperRecording({
+    onResult: handleDictationResult,
+    onLevel: (level) => void emit("terax:dictation-level", level),
+  });
 
   const toggleDictation = useCallback(() => {
     if (dictation.recording) {

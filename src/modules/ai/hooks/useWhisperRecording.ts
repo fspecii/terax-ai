@@ -38,10 +38,15 @@ function getApiKeyForStt(
 
 type State = "idle" | "recording" | "transcribing";
 
+const LEVEL_INTERVAL_MS = 80;
+
 export function useWhisperRecording({
   onResult,
+  onLevel,
 }: {
   onResult: (text: string) => void;
+  /** Mic amplitude (RMS, 0..1) while recording, ~12 Hz. No React state. */
+  onLevel?: (level: number) => void;
 }) {
   const apiKeys = useChatStore((s) => s.apiKeys);
   const sttProvider = usePreferencesStore((s) => s.sttProvider);
@@ -57,6 +62,10 @@ export function useWhisperRecording({
   const recRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const levelCtxRef = useRef<AudioContext | null>(null);
+  const levelTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const onLevelRef = useRef(onLevel);
+  onLevelRef.current = onLevel;
 
   const needsKey = providerNeedsKey(sttProvider);
   const providerKey = needsKey ? getApiKeyForStt(apiKeys, sttProvider) : null;
@@ -75,8 +84,37 @@ export function useWhisperRecording({
   };
 
   const teardownStream = () => {
+    if (levelTimerRef.current !== null) {
+      clearInterval(levelTimerRef.current);
+      levelTimerRef.current = null;
+    }
+    void levelCtxRef.current?.close().catch(() => {});
+    levelCtxRef.current = null;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
+  };
+
+  const startLevelMeter = (stream: MediaStream) => {
+    if (!onLevelRef.current) return;
+    try {
+      const ctx = new AudioContext();
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      ctx.createMediaStreamSource(stream).connect(analyser);
+      const data = new Uint8Array(analyser.fftSize);
+      levelCtxRef.current = ctx;
+      levelTimerRef.current = setInterval(() => {
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (const v of data) {
+          const c = (v - 128) / 128;
+          sum += c * c;
+        }
+        onLevelRef.current?.(Math.sqrt(sum / data.length));
+      }, LEVEL_INTERVAL_MS);
+    } catch {
+      // Level metering is cosmetic; recording continues without it.
+    }
   };
 
   const stop = useCallback(() => {
@@ -134,6 +172,7 @@ export function useWhisperRecording({
       };
       recRef.current = rec;
       rec.start();
+      startLevelMeter(stream);
       setState("recording");
     } catch (e) {
       console.error("stt.getUserMedia", e);

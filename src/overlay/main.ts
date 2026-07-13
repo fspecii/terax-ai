@@ -41,3 +41,16 @@ void listen<{ state: string }>("terax:dictation-state", (e) => {
 pill.addEventListener("click", () => {
   void emit("terax:overlay-click", { state: pill.dataset.state ?? "" });
 });
+
+// Mic level bars while recording: center-weighted heights from the RMS level.
+const bars = Array.from(
+  document.querySelectorAll<HTMLElement>("#bars i"),
+);
+const BAR_WEIGHTS = [0.45, 0.75, 1, 0.75, 0.45];
+
+void listen<number>("terax:dictation-level", (e) => {
+  const level = Math.min(1, e.payload * 3.5);
+  bars.forEach((bar, i) => {
+    bar.style.height = `${3 + level * BAR_WEIGHTS[i] * 13}px`;
+  });
+});

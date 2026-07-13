@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractSpeakableText } from "./speakable";
+import { extractSpeakableText, speakableFromMarkdown } from "./speakable";
 
 describe("extractSpeakableText", () => {
   it("strips box-drawing borders and keeps the answer", () => {
@@ -69,5 +69,34 @@ describe("extractSpeakableText", () => {
       "⏺ Done.\n✻ Simmering… (running stop hook · 3s)",
     );
     expect(out).toBe("Done.");
+  });
+});
+
+describe("speakableFromMarkdown", () => {
+  it("collapses code blocks and strips formatting", () => {
+    const md = [
+      "I fixed the bug in **auth.ts**:",
+      "",
+      "```ts",
+      "if (user == null) return;",
+      "```",
+      "",
+      "The `null` check now runs first. See [the docs](https://example.com).",
+    ].join("\n");
+    expect(speakableFromMarkdown(md)).toBe(
+      "I fixed the bug in auth.ts: code block The null check now runs first. See the docs.",
+    );
+  });
+
+  it("strips headings and list bullets", () => {
+    const md = "## Summary\n- first thing\n- second thing";
+    expect(speakableFromMarkdown(md)).toBe("Summary first thing second thing");
+  });
+
+  it("caps long messages to the tail", () => {
+    const words = Array.from({ length: 300 }, (_, i) => `word${i}`).join(" ");
+    const out = speakableFromMarkdown(words);
+    expect(out.length).toBeLessThanOrEqual(600);
+    expect(out.endsWith("word299")).toBe(true);
   });
 });

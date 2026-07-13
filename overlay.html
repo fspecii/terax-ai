@@ -46,6 +46,25 @@
         background: #38bdf8;
         animation-duration: 1.6s;
       }
+      #bars {
+        display: none;
+        align-items: center;
+        gap: 2.5px;
+        height: 16px;
+      }
+      #bars i {
+        width: 3px;
+        height: 3px;
+        border-radius: 2px;
+        background: #f43f5e;
+        transition: height 90ms ease;
+      }
+      #pill[data-state="recording"] #bars {
+        display: flex;
+      }
+      #pill[data-state="recording"] #dot {
+        display: none;
+      }
       @keyframes pulse {
         0%,
         100% {
@@ -62,6 +81,7 @@
   <body>
     <div id="pill" data-state="recording" title="Click to stop">
       <span id="dot"></span>
+      <span id="bars"><i></i><i></i><i></i><i></i><i></i></span>
       <span id="label">Recording...</span>
     </div>
     <script type="module" src="/src/overlay/main.ts"></script>

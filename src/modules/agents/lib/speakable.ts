@@ -52,6 +52,27 @@ export function extractSpeakableText(buffer: string): string {
     .filter((l) => !isChrome(l));
 
   const text = lines.join(" ").replace(/\s+/g, " ").trim();
+  return capTail(text);
+}
+
+/**
+ * Reduces an assistant chat message (markdown) to text worth speaking:
+ * code blocks collapse to a placeholder, formatting markers are dropped.
+ */
+export function speakableFromMarkdown(text: string): string {
+  const cleaned = text
+    .replace(/```[\s\S]*?```/g, " code block ")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/(\*\*|__|\*|_)(?=\S)/g, "")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return capTail(cleaned);
+}
+
+function capTail(text: string): string {
   if (text.length <= MAX_SPOKEN_CHARS) return text;
   // Resume from a word boundary so speech does not start mid-word.
   const tail = text.slice(-MAX_SPOKEN_CHARS);

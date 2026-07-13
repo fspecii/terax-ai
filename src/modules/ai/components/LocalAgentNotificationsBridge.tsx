@@ -1,11 +1,25 @@
 import { routeAgentNotification } from "@/modules/agents/lib/route";
+import { maybeSpeakChatMessage } from "@/modules/agents/lib/tts";
 import { useWindowFocus } from "@/modules/agents/lib/useWindowFocus";
 import { useAgentStore } from "@/modules/agents/store/agentStore";
 import type { AgentStatus } from "@/modules/agents/lib/types";
 import { useEffect, useRef } from "react";
-import { useChatStore } from "../store/chatStore";
+import { getChat, useChatStore } from "../store/chatStore";
 
 const AGENT = "Terax";
+
+function lastAssistantText(): string {
+  const messages = getChat()?.messages ?? [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== "assistant") continue;
+    return m.parts
+      .filter((p): p is { type: "text"; text: string } => p.type === "text")
+      .map((p) => p.text)
+      .join("\n");
+  }
+  return "";
+}
 
 type RunStatus =
   | "idle"
@@ -68,6 +82,8 @@ export function LocalAgentNotificationsBridge() {
       fire("error", "Terax run failed", error ?? undefined);
     } else if (status === "idle" && isBusy(was)) {
       fire("finished", "Terax finished", "Your task is ready");
+      const text = lastAssistantText();
+      if (text) maybeSpeakChatMessage(text);
     }
   }, [status, error]);
 
