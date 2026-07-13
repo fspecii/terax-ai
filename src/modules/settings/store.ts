@@ -17,6 +17,7 @@ import {
   type SttProvider,
   WHISPERCPP_DEFAULT_BASE_URL,
 } from "@/modules/ai/config";
+import { IS_MAC } from "@/lib/platform";
 import type { KeyBinding, ShortcutId } from "@/modules/shortcuts/shortcuts";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { LazyStore } from "@tauri-apps/plugin-store";
@@ -27,8 +28,8 @@ export type DictationHotkey = "off" | "right-option" | "right-command";
 
 export const DICTATION_HOTKEY_LABELS: Record<DictationHotkey, string> = {
   off: "Off",
-  "right-option": "Right Option (⌥)",
-  "right-command": "Right Command (⌘)",
+  "right-option": IS_MAC ? "Right Option (⌥)" : "Right Alt",
+  "right-command": IS_MAC ? "Right Command (⌘)" : "Right Win",
 };
 
 /** macOS virtual keycodes consumed by the Rust global key listener. */
