@@ -7,7 +7,26 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Pre-creating the draft release keeps the parallel matrix legs from racing
+  # to create it, which used to split the artifacts across two drafts.
+  create-release:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+                 --draft --title "Terax $GITHUB_REF_NAME" \
+                 --notes "See the assets to download and install. Auto-update is built in. These builds are not code-signed: on macOS right-click the app and choose Open on first launch (or run xattr -cr /Applications/Terax.app); on Windows click More info, then Run anyway."
+
   publish-tauri:
+    needs: create-release
+    if: always() && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
     permissions:
       contents: write
     strategy:
