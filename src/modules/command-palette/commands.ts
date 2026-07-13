@@ -6,6 +6,7 @@ import {
   DashboardSquare01Icon,
   FileEditIcon,
   FileSearchIcon,
+  Folder01Icon,
   Globe02Icon,
   IncognitoIcon,
   KeyboardIcon,
@@ -59,6 +60,7 @@ export type CommandPaletteActionContext = {
   activeSpaceId: string | null;
   openSpacesOverview: () => void;
   newSpace: () => void;
+  openFolder: () => void;
   switchSpace: (id: string) => void;
 };
 
@@ -123,6 +125,22 @@ export function createCommandItems(
       keywords: ["space", "session", "workspace", "group", "create"],
       icon: DashboardSquare01Icon,
       run: ctx.newSpace,
+    },
+    {
+      id: "spaces.openFolder",
+      title: "Open Folder…",
+      group: "Spaces",
+      keywords: [
+        "space",
+        "workspace",
+        "open",
+        "folder",
+        "drive",
+        "external",
+        "volume",
+      ],
+      icon: Folder01Icon,
+      run: ctx.openFolder,
     },
     ...ctx.spaces.map((sp) => ({
       id: `spaces.switch.${sp.id}`,

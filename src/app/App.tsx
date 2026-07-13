@@ -100,7 +100,12 @@ import {
 } from "@/modules/terminal";
 import { ThemeProvider, useThemeFileEditing } from "@/modules/theme";
 import { UpdaterDialog } from "@/modules/updater";
-import { useWorkspaceEnvStore, type WorkspaceEnv } from "@/modules/workspace";
+import {
+  LOCAL_WORKSPACE,
+  pickFolder,
+  useWorkspaceEnvStore,
+  type WorkspaceEnv,
+} from "@/modules/workspace";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -1222,6 +1227,31 @@ export default function App() {
     return meta.id;
   }, [activeCwd, home, workspaceEnv, newTab, setActiveSpaceForNewTabs]);
 
+  // Native folder picker — the only way to root a space outside the current
+  // filesystem neighborhood (e.g. an external drive), since the explorer
+  // tree only ever shows descendants of a space's existing root.
+  const handleOpenFolder = useCallback(async () => {
+    const picked = await pickFolder().catch(() => null);
+    if (!picked) return;
+    try {
+      await native.workspaceAuthorize(picked);
+    } catch (e) {
+      window.alert(String(e));
+      return;
+    }
+    const { spaces, create, setActive } = useSpaces.getState();
+    const name = picked.split(/[\\/]/).filter(Boolean).pop() ?? picked;
+    const meta = create({
+      name: name || `Space ${spaces.length + 1}`,
+      root: picked,
+      env: LOCAL_WORKSPACE,
+    });
+    setActiveSpaceForNewTabs(meta.id);
+    newTab(picked);
+    setActive(meta.id);
+    return meta.id;
+  }, [newTab, setActiveSpaceForNewTabs]);
+
   const handleDeleteSpace = useCallback(
     (id: string) => {
       const nextSpaceId = useSpaces.getState().remove(id);
@@ -1320,6 +1350,7 @@ export default function App() {
             activeSpaceId,
             openSpacesOverview: () => setSwitcherOpen(true),
             newSpace: () => void handleNewSpace(),
+            openFolder: () => void handleOpenFolder(),
             switchSpace: (id) => useSpaces.getState().setActive(id),
           })
         : [],
@@ -1343,6 +1374,7 @@ export default function App() {
       askFromSelection,
       activeSpaceId,
       handleNewSpace,
+      handleOpenFolder,
     ],
   );
 
@@ -1413,8 +1445,6 @@ export default function App() {
                 defaultSize="200px"
                 minSize="140px"
                 maxSize="320px"
-                collapsible
-                collapsedSize={0}
               >
                 <div className="flex h-full min-h-0 flex-col border-r border-border/60 bg-card">
                   <TabBar
@@ -1472,6 +1502,7 @@ export default function App() {
                         onPathDeleted={handlePathDeleted}
                         onRevealInTerminal={cdInNewTab}
                         onAttachToAgent={handleAttachFileToAgent}
+                        onOpenFolder={() => void handleOpenFolder()}
                       />
                     ) : (
                       <SourceControlPanel

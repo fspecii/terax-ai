@@ -59,6 +59,8 @@ type Props = {
   onPathDeleted?: (path: string) => void;
   onRevealInTerminal?: (path: string) => void;
   onAttachToAgent?: (path: string) => void;
+  /** Opens the native folder picker (any mounted volume, incl. external drives) and opens the result as a new space. */
+  onOpenFolder?: () => void;
   gitStatus?: GitStatusSnapshot | null;
 };
 
@@ -190,6 +192,7 @@ export const FileExplorer = memo(
       onPathDeleted,
       onRevealInTerminal,
       onAttachToAgent,
+      onOpenFolder,
       gitStatus,
     },
     ref,
@@ -491,9 +494,19 @@ export const FileExplorer = memo(
         onKeyDown={handleKeyDown}
       >
         <div className="flex h-8 shrink-0 items-center gap-1 border-b border-border/60 px-2">
-          <span
-            className="flex flex-1 items-center truncate text-xs font-medium text-foreground/80"
-            title={rootPath}
+          <button
+            type="button"
+            className={cn(
+              "flex flex-1 items-center truncate rounded text-xs font-medium text-foreground/80",
+              onOpenFolder && "hover:bg-accent/60 hover:text-foreground",
+            )}
+            title={
+              onOpenFolder
+                ? `${rootPath}\nClick to open a different folder (including external drives)`
+                : rootPath
+            }
+            disabled={!onOpenFolder}
+            onClick={onOpenFolder}
           >
             <img
               src={folderIconUrl(basename(rootPath), false)}
@@ -503,7 +516,7 @@ export const FileExplorer = memo(
               className="mx-1.5"
             />
             {basename(rootPath)}
-          </span>
+          </button>
 
           <Button
             variant="ghost"

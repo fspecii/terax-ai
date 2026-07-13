@@ -9,3 +9,4 @@ export {
   type WorkspaceEnv,
   type WslDistro,
 } from "./env";
+export { pickFolder } from "./pickFolder";
