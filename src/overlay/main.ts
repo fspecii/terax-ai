@@ -38,12 +38,15 @@ type Target = { tabId: number; label: string; agent: boolean };
 const targetsEl = document.getElementById("targets") as HTMLDivElement;
 const BASE_HEIGHT = 52;
 const TARGET_ROW = 28;
+const MAX_VISIBLE_TARGETS = 8;
 
 let targets: Target[] = [];
 let currentTabId = -1;
 
 function resize(): void {
-  const rows = targetsEl.classList.contains("visible") ? targets.length : 0;
+  const rows = targetsEl.classList.contains("visible")
+    ? Math.min(targets.length, MAX_VISIBLE_TARGETS)
+    : 0;
   const height = BASE_HEIGHT + (rows > 0 ? rows * TARGET_ROW + 6 : 0);
   void getCurrentWindow().setSize(new LogicalSize(OVERLAY_WIDTH, height));
 }
@@ -75,6 +78,9 @@ function renderTargets(): void {
     }),
   );
   resize();
+  targetsEl
+    .querySelector(".target.current")
+    ?.scrollIntoView({ block: "nearest" });
 }
 
 void listen<{ state: string }>("terax:dictation-state", (e) => {
@@ -94,11 +100,13 @@ void listen<{ targets: Target[]; activeTabId: number }>(
   },
 );
 
-// Scrolling anywhere over the overlay cycles the dictation target.
+// Scrolling anywhere over the overlay cycles the dictation target. Native
+// list scrolling is suppressed; the selection scrolls itself into view.
 let lastWheel = 0;
 document.addEventListener(
   "wheel",
   (e) => {
+    e.preventDefault();
     if (targets.length < 2) return;
     const now = Date.now();
     if (now - lastWheel < 150) return;
@@ -108,8 +116,12 @@ document.addEventListener(
     const next = targets[(idx + dir + targets.length) % targets.length];
     void emit("terax:dictation-pick", { tabId: next.tabId });
   },
-  { passive: true },
+  { passive: false },
 );
+
+// First-show handshake: the main window emits state and targets again once
+// this page is actually listening, so the first recording shows the list.
+void emit("terax:overlay-ready");
 
 pill.addEventListener("click", () => {
   void emit("terax:overlay-click", { state: pill.dataset.state ?? "" });

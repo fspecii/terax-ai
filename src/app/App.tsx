@@ -470,18 +470,50 @@ export default function App() {
 
   // Feed the overlay the pickable terminal targets while recording, so a
   // cycle-key tap, an overlay scroll, or a chip click can retarget dictation.
-  useEffect(() => {
-    if (dictation.state !== "recording") return;
+  const dictationStateRef = useRef(dictation.state);
+  dictationStateRef.current = dictation.state;
+
+  const broadcastDictationTargets = useCallback(() => {
+    if (dictationStateRef.current !== "recording") return;
     const sessions = useAgentStore.getState().sessions;
-    const targets = spaceTabs
+    const targets = spaceTabsRef.current
       .filter((t) => t.kind === "terminal")
       .map((t) => ({
         tabId: t.id,
         label: labelFor(t),
         agent: !!sessions[t.activeLeafId],
       }));
-    void emit("terax:dictation-targets", { targets, activeTabId: activeId });
-  }, [dictation.state, spaceTabs, activeId]);
+    void emit("terax:dictation-targets", {
+      targets,
+      activeTabId: activeIdRef.current,
+    });
+  }, []);
+
+  useEffect(() => {
+    broadcastDictationTargets();
+  }, [
+    broadcastDictationTargets,
+    // Re-broadcast on every change that alters the list or the highlight.
+    dictation.state,
+    spaceTabs,
+    activeId,
+  ]);
+
+  // The overlay window loads after the first show; it announces itself so
+  // the initial state and target list are not lost to the race.
+  useEffect(() => {
+    const unlisten = listen("terax:overlay-ready", () => {
+      const state =
+        dictationStateRef.current !== "idle"
+          ? dictationStateRef.current
+          : null;
+      if (state) void emit("terax:dictation-state", { state });
+      broadcastDictationTargets();
+    });
+    return () => {
+      void unlisten.then((u) => u());
+    };
+  }, [broadcastDictationTargets]);
 
 
   const {

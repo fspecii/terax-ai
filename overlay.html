@@ -70,6 +70,12 @@
         flex-direction: column;
         gap: 3px;
         margin: 0 6px 6px;
+        max-height: 224px;
+        overflow-y: auto;
+        scrollbar-width: none;
+      }
+      #targets::-webkit-scrollbar {
+        display: none;
       }
       #targets.visible {
         display: flex;
