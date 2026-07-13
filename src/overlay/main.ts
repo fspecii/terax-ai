@@ -3,6 +3,7 @@ import {
   currentMonitor,
   getCurrentWindow,
   LogicalPosition,
+  LogicalSize,
 } from "@tauri-apps/api/window";
 
 const OVERLAY_WIDTH = 210;
@@ -32,11 +33,83 @@ const LABELS: Record<string, string> = {
   speaking: "Speaking...",
 };
 
+type Target = { tabId: number; label: string; agent: boolean };
+
+const targetsEl = document.getElementById("targets") as HTMLDivElement;
+const BASE_HEIGHT = 52;
+const TARGET_ROW = 28;
+
+let targets: Target[] = [];
+let currentTabId = -1;
+
+function resize(): void {
+  const rows = targetsEl.classList.contains("visible") ? targets.length : 0;
+  const height = BASE_HEIGHT + (rows > 0 ? rows * TARGET_ROW + 6 : 0);
+  void getCurrentWindow().setSize(new LogicalSize(OVERLAY_WIDTH, height));
+}
+
+function renderTargets(): void {
+  const show = pill.dataset.state === "recording" && targets.length > 1;
+  targetsEl.classList.toggle("visible", show);
+  targetsEl.replaceChildren(
+    ...targets.map((t, i) => {
+      const row = document.createElement("div");
+      row.className = `target${t.tabId === currentTabId ? " current" : ""}`;
+      const idx = document.createElement("span");
+      idx.className = "idx";
+      idx.textContent = String(i + 1);
+      const name = document.createElement("span");
+      name.className = "name";
+      name.textContent = t.label;
+      row.append(idx, name);
+      if (t.agent) {
+        const dot = document.createElement("span");
+        dot.className = "agent-dot";
+        row.append(dot);
+      }
+      row.addEventListener("click", (e) => {
+        e.stopPropagation();
+        void emit("terax:dictation-pick", { tabId: t.tabId });
+      });
+      return row;
+    }),
+  );
+  resize();
+}
+
 void listen<{ state: string }>("terax:dictation-state", (e) => {
   const state = e.payload.state;
   pill.dataset.state = state;
   label.textContent = LABELS[state] ?? "Recording...";
+  if (state !== "recording") targets = [];
+  renderTargets();
 });
+
+void listen<{ targets: Target[]; activeTabId: number }>(
+  "terax:dictation-targets",
+  (e) => {
+    targets = e.payload.targets;
+    currentTabId = e.payload.activeTabId;
+    renderTargets();
+  },
+);
+
+// Scrolling anywhere over the overlay cycles the dictation target.
+let lastWheel = 0;
+document.addEventListener(
+  "wheel",
+  (e) => {
+    if (targets.length < 2) return;
+    const now = Date.now();
+    if (now - lastWheel < 150) return;
+    lastWheel = now;
+    const dir = e.deltaY > 0 ? 1 : -1;
+    const idx = targets.findIndex((t) => t.tabId === currentTabId);
+    const next = targets[(idx + dir + targets.length) % targets.length];
+    void emit("terax:dictation-pick", { tabId: next.tabId });
+  },
+  { passive: true },
+);
 
 pill.addEventListener("click", () => {
   void emit("terax:overlay-click", { state: pill.dataset.state ?? "" });

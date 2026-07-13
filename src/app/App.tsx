@@ -15,6 +15,7 @@ import {
   nextAttentionTarget,
 } from "@/modules/agents";
 import { stopAgentSpeech } from "@/modules/agents/lib/tts";
+import { useAgentStore } from "@/modules/agents/store/agentStore";
 import {
   AgentRunBridge,
   AiMiniWindow,
@@ -75,6 +76,7 @@ import {
 } from "@/modules/spaces";
 import { StatusBar } from "@/modules/statusbar";
 import {
+  labelFor,
   TabBar,
   TabSwitcherHud,
   useTabSwitcher,
@@ -188,6 +190,8 @@ export default function App() {
   // at transcription time, not at recording start.
   const dictationLeafRef = useRef<number | null>(null);
   dictationLeafRef.current = activeLeafId;
+  const activeIdRef = useRef(activeId);
+  activeIdRef.current = activeId;
 
   const handleDictationResult = useCallback((text: string) => {
     const leafId = dictationLeafRef.current;
@@ -229,8 +233,27 @@ export default function App() {
     }
     // The mic must not record the agent's synthesized voice.
     stopAgentSpeech();
+    // Dictation lands in the active terminal; when an editor or preview tab
+    // is up, jump to the first terminal so the picker has a valid target.
+    const tabsNow = spaceTabsRef.current;
+    const activeNow = tabsNow.find((t) => t.id === activeIdRef.current);
+    if (activeNow?.kind !== "terminal") {
+      const firstTerm = tabsNow.find((t) => t.kind === "terminal");
+      if (firstTerm) setActiveId(firstTerm.id);
+    }
     void dictation.start();
-  }, [dictation]);
+  }, [dictation, setActiveId]);
+
+  // While recording, the cycle hotkey / overlay scroll / overlay click move
+  // the dictation target by switching the active terminal tab.
+  const cycleDictationTarget = useCallback(() => {
+    if (!dictationRef.current.recording) return;
+    const terms = spaceTabsRef.current.filter((t) => t.kind === "terminal");
+    if (terms.length < 2) return;
+    const idx = terms.findIndex((t) => t.id === activeIdRef.current);
+    const next = terms[(idx + 1) % terms.length];
+    setActiveId(next.id);
+  }, [setActiveId]);
 
   const dictationRef = useRef({ toggle: toggleDictation, stop: dictation.stop, recording: dictation.recording });
   dictationRef.current = { toggle: toggleDictation, stop: dictation.stop, recording: dictation.recording };
@@ -251,9 +274,11 @@ export default function App() {
   const dictationHotkey = usePreferencesStore((s) => s.dictationHotkey);
   useEffect(() => {
     const keycode = DICTATION_HOTKEY_KEYCODES[dictationHotkey];
+    const cycleKeycode =
+      keycode === null ? null : keycode === 54 ? 61 : 54;
     let cleanup: (() => void) | undefined;
     let cancelled = false;
-    invoke<string>("dictation_hotkey_set", { keycode })
+    invoke<string>("dictation_hotkey_set", { keycode, cycleKeycode })
       .then((status) => {
         if (cancelled || keycode === null || status === "ok") return;
         if (status === "needs-permission") {
@@ -289,6 +314,19 @@ export default function App() {
 
   useEffect(() => {
     const unlistenTap = listen("terax:dictation-tap", tapToggle);
+    const unlistenCycle = listen("terax:dictation-cycle", () =>
+      cycleDictationTarget(),
+    );
+    const unlistenPick = listen<{ tabId: number }>(
+      "terax:dictation-pick",
+      (e) => {
+        if (!dictationRef.current.recording) return;
+        const t = spaceTabsRef.current.find(
+          (x) => x.id === e.payload.tabId && x.kind === "terminal",
+        );
+        if (t) setActiveId(t.id);
+      },
+    );
     const unlistenClick = listen<{ state: string }>(
       "terax:overlay-click",
       (e) => {
@@ -301,9 +339,11 @@ export default function App() {
     );
     return () => {
       void unlistenTap.then((u) => u());
+      void unlistenCycle.then((u) => u());
+      void unlistenPick.then((u) => u());
       void unlistenClick.then((u) => u());
     };
-  }, [tapToggle]);
+  }, [tapToggle, cycleDictationTarget, setActiveId]);
 
   // Floating always-on-top pill so recording and agent-speech state stay
   // visible while the main window is hidden or in the background. Dictation
@@ -425,6 +465,24 @@ export default function App() {
     () => tabs.filter((t) => t.spaceId === (activeSpaceId ?? DEFAULT_SPACE_ID)),
     [tabs, activeSpaceId],
   );
+  const spaceTabsRef = useRef(spaceTabs);
+  spaceTabsRef.current = spaceTabs;
+
+  // Feed the overlay the pickable terminal targets while recording, so a
+  // cycle-key tap, an overlay scroll, or a chip click can retarget dictation.
+  useEffect(() => {
+    if (dictation.state !== "recording") return;
+    const sessions = useAgentStore.getState().sessions;
+    const targets = spaceTabs
+      .filter((t) => t.kind === "terminal")
+      .map((t) => ({
+        tabId: t.id,
+        label: labelFor(t),
+        agent: !!sessions[t.activeLeafId],
+      }));
+    void emit("terax:dictation-targets", { targets, activeTabId: activeId });
+  }, [dictation.state, spaceTabs, activeId]);
+
 
   const {
     sidebarRef,

@@ -8,6 +8,7 @@ use std::sync::OnceLock;
 /// via IOHIDRequestAccess. A short press-and-release of the configured key
 /// emits `terax:dictation-tap` to the frontend.
 static TARGET_KEYCODE: AtomicU16 = AtomicU16::new(0);
+static CYCLE_KEYCODE: AtomicU16 = AtomicU16::new(0);
 static LISTENER: OnceLock<()> = OnceLock::new();
 
 #[cfg(target_os = "macos")]
@@ -80,41 +81,63 @@ fn listen_loop(app: tauri::AppHandle) {
     const POLL: Duration = Duration::from_millis(25);
     const MAX_TAP_MS: u128 = 500;
 
-    let mut down_at: Option<Instant> = None;
-    let mut watched: u16 = 0;
+    struct Tap {
+        watched: u16,
+        down_at: Option<Instant>,
+    }
+
+    impl Tap {
+        fn poll(&mut self, key: u16) -> bool {
+            if key == 0 {
+                self.down_at = None;
+                return false;
+            }
+            if self.watched != key {
+                self.watched = key;
+                self.down_at = None;
+            }
+            match (key_state::is_down(key), self.down_at) {
+                (true, None) => {
+                    self.down_at = Some(Instant::now());
+                    false
+                }
+                (false, Some(t)) => {
+                    self.down_at = None;
+                    t.elapsed().as_millis() <= MAX_TAP_MS
+                }
+                _ => false,
+            }
+        }
+    }
+
+    let mut toggle = Tap { watched: 0, down_at: None };
+    let mut cycle = Tap { watched: 0, down_at: None };
     loop {
         std::thread::sleep(POLL);
-        let key = TARGET_KEYCODE.load(Ordering::Relaxed);
-        if key == 0 {
-            down_at = None;
-            continue;
+        if toggle.poll(TARGET_KEYCODE.load(Ordering::Relaxed)) {
+            let _ = app.emit("terax:dictation-tap", ());
         }
-        if watched != key {
-            watched = key;
-            down_at = None;
-        }
-        match (key_state::is_down(key), down_at) {
-            (true, None) => down_at = Some(Instant::now()),
-            (false, Some(t)) => {
-                if t.elapsed().as_millis() <= MAX_TAP_MS {
-                    let _ = app.emit("terax:dictation-tap", ());
-                }
-                down_at = None;
-            }
-            _ => {}
+        if cycle.poll(CYCLE_KEYCODE.load(Ordering::Relaxed)) {
+            let _ = app.emit("terax:dictation-cycle", ());
         }
     }
 }
 
-/// Sets (or clears, with None) the dictation hotkey keycode. Returns the
-/// listener status: "ok", "needs-permission" (macOS Input Monitoring not
-/// granted, hotkey only sees keys while Terax is focused), or "unsupported".
+/// Sets (or clears, with None) the dictation toggle and cycle keycodes.
+/// Returns the listener status: "ok", "needs-permission" (macOS Input
+/// Monitoring not granted, hotkeys only see keys while Terax is focused),
+/// or "unsupported".
 #[tauri::command]
-pub fn dictation_hotkey_set(app: tauri::AppHandle, keycode: Option<u16>) -> &'static str {
+pub fn dictation_hotkey_set(
+    app: tauri::AppHandle,
+    keycode: Option<u16>,
+    cycle_keycode: Option<u16>,
+) -> &'static str {
     #[cfg(target_os = "macos")]
     {
         let key = keycode.unwrap_or(0);
         TARGET_KEYCODE.store(key, Ordering::Relaxed);
+        CYCLE_KEYCODE.store(cycle_keycode.unwrap_or(0), Ordering::Relaxed);
         if key == 0 {
             return "ok";
         }
@@ -129,7 +152,7 @@ pub fn dictation_hotkey_set(app: tauri::AppHandle, keycode: Option<u16>) -> &'st
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (app, keycode);
+        let _ = (app, keycode, cycle_keycode);
         "unsupported"
     }
 }

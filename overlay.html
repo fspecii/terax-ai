@@ -65,6 +65,53 @@
       #pill[data-state="recording"] #dot {
         display: none;
       }
+      #targets {
+        display: none;
+        flex-direction: column;
+        gap: 3px;
+        margin: 0 6px 6px;
+      }
+      #targets.visible {
+        display: flex;
+      }
+      .target {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 6px 10px;
+        border-radius: 10px;
+        background: rgba(18, 18, 24, 0.92);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: rgba(255, 255, 255, 0.72);
+        font:
+          500 11.5px/1 -apple-system,
+          system-ui,
+          sans-serif;
+        cursor: pointer;
+      }
+      .target.current {
+        border-color: rgba(56, 189, 248, 0.75);
+        background: rgba(30, 34, 46, 0.95);
+        color: #fff;
+      }
+      .target .idx {
+        opacity: 0.5;
+        font-size: 10px;
+        min-width: 9px;
+      }
+      .target .name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .target .agent-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: #4ade80;
+        margin-left: auto;
+        flex-shrink: 0;
+      }
       @keyframes pulse {
         0%,
         100% {
@@ -84,6 +131,7 @@
       <span id="bars"><i></i><i></i><i></i><i></i><i></i></span>
       <span id="label">Recording...</span>
     </div>
+    <div id="targets"></div>
     <script type="module" src="/src/overlay/main.ts"></script>
   </body>
 </html>
