@@ -1,21 +1,71 @@
 import type { ProviderKeys } from "./keyring";
+import { createProxyFetch } from "./proxyFetch";
 
 const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
 const STT_TIMEOUT_GROQ_MS = 30_000;
 const STT_TIMEOUT_WHISPERCPP_MS = 180_000;
+const STT_TIMEOUT_PARAKEET_MS = 180_000;
+
+// Local servers rarely send CORS headers, so webview fetch fails with an
+// opaque "Load failed". Route those through the Rust HTTP proxy instead.
+const localProxyFetch = createProxyFetch({ allowPrivateNetwork: true });
 
 async function fetchWithTimeout(
   input: RequestInfo | URL,
   init: RequestInit = {},
   timeoutMs: number,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(input, { ...init, signal: controller.signal });
+    return await fetchImpl(input, { ...init, signal: controller.signal });
   } finally {
     clearTimeout(timer);
   }
+}
+
+export type MultipartPart =
+  | { name: string; value: string }
+  | { name: string; filename: string; contentType: string; bytes: Uint8Array };
+
+// The Rust proxy takes raw bytes, so multipart bodies are assembled by hand;
+// letting the webview serialize FormData would round-trip the WAV through a
+// lossy UTF-8 decode.
+export function buildMultipartBody(
+  parts: MultipartPart[],
+  boundary: string,
+): Uint8Array<ArrayBuffer> {
+  const enc = new TextEncoder();
+  const chunks: Uint8Array[] = [];
+  for (const part of parts) {
+    chunks.push(enc.encode(`--${boundary}\r\n`));
+    if ("bytes" in part) {
+      chunks.push(
+        enc.encode(
+          `Content-Disposition: form-data; name="${part.name}"; filename="${part.filename}"\r\n` +
+            `Content-Type: ${part.contentType}\r\n\r\n`,
+        ),
+      );
+      chunks.push(part.bytes);
+    } else {
+      chunks.push(
+        enc.encode(
+          `Content-Disposition: form-data; name="${part.name}"\r\n\r\n${part.value}`,
+        ),
+      );
+    }
+    chunks.push(enc.encode("\r\n"));
+  }
+  chunks.push(enc.encode(`--${boundary}--\r\n`));
+  const total = chunks.reduce((n, c) => n + c.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.length;
+  }
+  return out;
 }
 
 async function transcribeOpenAI(blob: Blob, apiKey: string): Promise<string> {
@@ -58,10 +108,24 @@ async function transcribeViaRest(
   return res.text();
 }
 
+// STT models run at 16 kHz mono; resampling here also keeps the IPC payload
+// to the Rust proxy several times smaller than the mic's native rate.
+const WAV_SAMPLE_RATE = 16_000;
+
 async function toWav(blob: Blob): Promise<Blob> {
   const ctx = new AudioContext();
   try {
-    const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+    const decoded = await ctx.decodeAudioData(await blob.arrayBuffer());
+    const offline = new OfflineAudioContext(
+      1,
+      Math.max(1, Math.ceil(decoded.duration * WAV_SAMPLE_RATE)),
+      WAV_SAMPLE_RATE,
+    );
+    const src = offline.createBufferSource();
+    src.buffer = decoded;
+    src.connect(offline.destination);
+    src.start();
+    const buf = await offline.startRendering();
     const length = buf.length;
     const sampleRate = buf.sampleRate;
     const channel = buf.getChannelData(0);
@@ -105,14 +169,32 @@ async function transcribeWhisperCpp(
   blob: Blob,
 ): Promise<string> {
   const wav = await toWav(blob);
-  const form = new FormData();
-  form.append("file", wav, "audio.wav");
-  form.append("response_format", "text");
-
-  const res = await fetchWithTimeout(`${baseURL}/inference`, {
-    method: "POST",
-    body: form,
-  }, STT_TIMEOUT_WHISPERCPP_MS);
+  const wavBytes = new Uint8Array(await wav.arrayBuffer());
+  const boundary = `----terax-${Math.random().toString(36).slice(2)}`;
+  const reqBody = buildMultipartBody(
+    [
+      {
+        name: "file",
+        filename: "audio.wav",
+        contentType: "audio/wav",
+        bytes: wavBytes,
+      },
+      { name: "response_format", value: "text" },
+    ],
+    boundary,
+  );
+  const res = await fetchWithTimeout(
+    `${baseURL}/inference`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+      },
+      body: reqBody,
+    },
+    STT_TIMEOUT_WHISPERCPP_MS,
+    localProxyFetch,
+  );
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(
@@ -122,27 +204,90 @@ async function transcribeWhisperCpp(
   return res.text();
 }
 
-// Offline provider: never POST recorded audio to a non-loopback host.
-function assertLoopbackUrl(baseURL: string): void {
+// Offline providers: never POST recorded audio to a non-loopback host.
+export function assertLoopbackUrl(baseURL: string, providerName: string): void {
   let url: URL;
   try {
     url = new URL(baseURL);
   } catch {
-    throw new Error(`Invalid Whisper.cpp URL: ${baseURL}`);
+    throw new Error(`Invalid ${providerName} URL: ${baseURL}`);
   }
   const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
   const loopback =
     host === "localhost" || host === "::1" || /^127(\.\d{1,3}){3}$/.test(host);
   if (!loopback) {
     throw new Error(
-      "Whisper.cpp must run on a loopback address (localhost or 127.x.x.x) to keep transcription local.",
+      `${providerName} must run on a loopback address (localhost or 127.x.x.x) to keep transcription local.`,
     );
   }
+}
+
+// OpenAI-compatible local Parakeet servers (parakeet-mlx-server, mlx-audio,
+// parakeet-mlx-fastapi). They differ in response_format support, so parse
+// both plain text and {"text": ...} JSON bodies.
+async function transcribeParakeet(
+  baseURL: string,
+  blob: Blob,
+  model: string,
+): Promise<string> {
+  const base = baseURL.replace(/\/+$/, "");
+  const endpoint = base.endsWith("/v1")
+    ? `${base}/audio/transcriptions`
+    : `${base}/v1/audio/transcriptions`;
+
+  const wav = await toWav(blob);
+  const wavBytes = new Uint8Array(await wav.arrayBuffer());
+  const boundary = `----terax-${Math.random().toString(36).slice(2)}`;
+  const parts: MultipartPart[] = [
+    {
+      name: "file",
+      filename: "audio.wav",
+      contentType: "audio/wav",
+      bytes: wavBytes,
+    },
+    { name: "response_format", value: "text" },
+  ];
+  if (model) parts.push({ name: "model", value: model });
+  const reqBody = buildMultipartBody(parts, boundary);
+  const res = await fetchWithTimeout(
+    endpoint,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+      },
+      body: reqBody,
+    },
+    STT_TIMEOUT_PARAKEET_MS,
+    localProxyFetch,
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(
+      `STT request failed (${res.status}): ${body || res.statusText}`,
+    );
+  }
+  const body = await res.text();
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof (parsed as { text?: unknown }).text === "string"
+    ) {
+      return (parsed as { text: string }).text;
+    }
+  } catch {
+    // plain text response
+  }
+  return body;
 }
 
 export type SttOptions = {
   groqSttModel?: string;
   whispercppBaseURL?: string;
+  parakeetBaseURL?: string;
+  parakeetModel?: string;
 };
 
 export async function transcribeAudio(
@@ -166,8 +311,14 @@ export async function transcribeAudio(
     case "whispercpp": {
       const baseURL =
         options.whispercppBaseURL?.replace(/\/+$/, "") || "http://127.0.0.1:8080";
-      assertLoopbackUrl(baseURL);
+      assertLoopbackUrl(baseURL, "Whisper.cpp");
       return transcribeWhisperCpp(baseURL, blob);
+    }
+    case "parakeet": {
+      const baseURL =
+        options.parakeetBaseURL?.replace(/\/+$/, "") || "http://127.0.0.1:8000";
+      assertLoopbackUrl(baseURL, "Parakeet");
+      return transcribeParakeet(baseURL, blob, options.parakeetModel ?? "");
     }
   }
 }

@@ -35,6 +35,9 @@ import {
   PROVIDERS,
   type ProviderId,
   type ProviderInfo,
+  PARAKEET_DEFAULT_BASE_URL,
+  PARAKEET_DEFAULT_MODEL,
+  PARAKEET_DEFAULT_SERVER_COMMAND,
   providerNeedsKey,
   STT_PROVIDER_LABELS,
   type SttProvider,
@@ -71,7 +74,16 @@ import {
   setOpenaiCompatibleBaseURL,
   setOpenaiCompatibleContextLimit,
   setOpenaiCompatibleModelId,
+  DICTATION_HOTKEY_LABELS,
+  type DictationHotkey,
+  setDictationHotkey,
+  setDictationPressEnter,
+  setOverlayClickFocus,
   setOpenrouterModelId,
+  setParakeetAutoStart,
+  setParakeetBaseURL,
+  setParakeetModel,
+  setParakeetServerCommand,
   setRecentModelIds,
   setSttProvider,
   setWhispercppBaseURL,
@@ -1314,13 +1326,35 @@ function StatusLine({
 
 function VoiceBlock() {
   const sttProvider = usePreferencesStore((s) => s.sttProvider);
+  const dictationHotkey = usePreferencesStore((s) => s.dictationHotkey);
+  const dictationPressEnter = usePreferencesStore(
+    (s) => s.dictationPressEnter,
+  );
+  const overlayClickFocus = usePreferencesStore((s) => s.overlayClickFocus);
   const groqSttModel = usePreferencesStore((s) => s.groqSttModel);
   const whispercppBaseURL = usePreferencesStore((s) => s.whispercppBaseURL);
+  const parakeetBaseURL = usePreferencesStore((s) => s.parakeetBaseURL);
+  const parakeetModel = usePreferencesStore((s) => s.parakeetModel);
+  const parakeetAutoStart = usePreferencesStore((s) => s.parakeetAutoStart);
+  const parakeetServerCommand = usePreferencesStore(
+    (s) => s.parakeetServerCommand,
+  );
   const [urlDraft, setUrlDraft] = useState(whispercppBaseURL);
   const [groqModelDraft, setGroqModelDraft] = useState(groqSttModel);
+  const [parakeetUrlDraft, setParakeetUrlDraft] = useState(parakeetBaseURL);
+  const [parakeetModelDraft, setParakeetModelDraft] = useState(parakeetModel);
+  const [parakeetCmdDraft, setParakeetCmdDraft] = useState(
+    parakeetServerCommand,
+  );
 
   useEffect(() => setUrlDraft(whispercppBaseURL), [whispercppBaseURL]);
   useEffect(() => setGroqModelDraft(groqSttModel), [groqSttModel]);
+  useEffect(() => setParakeetUrlDraft(parakeetBaseURL), [parakeetBaseURL]);
+  useEffect(() => setParakeetModelDraft(parakeetModel), [parakeetModel]);
+  useEffect(
+    () => setParakeetCmdDraft(parakeetServerCommand),
+    [parakeetServerCommand],
+  );
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border/60 bg-card/60 px-3 py-2.5">
@@ -1369,7 +1403,72 @@ function VoiceBlock() {
           "Uses your official Groq API key and Groq's Whisper endpoint for transcription."}
         {sttProvider === "whispercpp" &&
           "Connects to a local Whisper.cpp server for fully offline transcription."}
+        {sttProvider === "parakeet" &&
+          "Connects to a local Parakeet server (OpenAI-compatible, e.g. parakeet-mlx-server or mlx-audio) for fast, fully offline transcription on Apple Silicon."}
       </p>
+
+      <FieldRow label="Hotkey">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="outline"
+              className="h-8 flex-1 justify-between gap-2 px-2.5 text-[11.5px]"
+            >
+              <span>{DICTATION_HOTKEY_LABELS[dictationHotkey]}</span>
+              <HugeiconsIcon
+                icon={ArrowDown01Icon}
+                size={11}
+                strokeWidth={2}
+                className="opacity-70"
+              />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-44 p-1">
+            {(Object.keys(DICTATION_HOTKEY_LABELS) as DictationHotkey[]).map(
+              (k) => (
+                <DropdownMenuItem
+                  key={k}
+                  onSelect={() => void setDictationHotkey(k)}
+                  className={cn(
+                    "flex items-center gap-2 text-[12px]",
+                    k === dictationHotkey && "bg-accent/50",
+                  )}
+                >
+                  <span>{DICTATION_HOTKEY_LABELS[k]}</span>
+                </DropdownMenuItem>
+              ),
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </FieldRow>
+      <p className="text-[10.5px] leading-relaxed text-muted-foreground">
+        A single tap of the key toggles dictation into the active terminal,
+        even while Terax is in the background.
+      </p>
+
+      <FieldRow label="Press Enter">
+        <div className="flex flex-1 items-center gap-2">
+          <Switch
+            checked={dictationPressEnter}
+            onCheckedChange={(v) => void setDictationPressEnter(v)}
+          />
+          <span className="text-[10.5px] text-muted-foreground">
+            Submit the dictated text with Enter after inserting it
+          </span>
+        </div>
+      </FieldRow>
+
+      <FieldRow label="Focus on click">
+        <div className="flex flex-1 items-center gap-2">
+          <Switch
+            checked={overlayClickFocus}
+            onCheckedChange={(v) => void setOverlayClickFocus(v)}
+          />
+          <span className="text-[10.5px] text-muted-foreground">
+            Clicking the floating overlay also focuses the Terax window
+          </span>
+        </div>
+      </FieldRow>
 
       {sttProvider === "groq" && (
         <div className="flex flex-col gap-2.5">
@@ -1404,6 +1503,64 @@ function VoiceBlock() {
               className="h-8 font-mono text-[11.5px]"
             />
           </FieldRow>
+        </div>
+      )}
+
+      {sttProvider === "parakeet" && (
+        <div className="flex flex-col gap-2.5">
+          <FieldRow label="Base URL">
+            <Input
+              value={parakeetUrlDraft}
+              onChange={(e) => setParakeetUrlDraft(e.target.value)}
+              onBlur={() => {
+                const v = parakeetUrlDraft.trim();
+                if (v !== parakeetBaseURL) void setParakeetBaseURL(v);
+              }}
+              placeholder={PARAKEET_DEFAULT_BASE_URL}
+              spellCheck={false}
+              className="h-8 font-mono text-[11.5px]"
+            />
+          </FieldRow>
+          <FieldRow label="Model">
+            <Input
+              value={parakeetModelDraft}
+              onChange={(e) => setParakeetModelDraft(e.target.value)}
+              onBlur={() => {
+                const v = parakeetModelDraft.trim();
+                if (v !== parakeetModel) void setParakeetModel(v);
+              }}
+              placeholder={PARAKEET_DEFAULT_MODEL}
+              spellCheck={false}
+              className="h-8 font-mono text-[11.5px]"
+            />
+          </FieldRow>
+          <FieldRow label="Auto-start">
+            <div className="flex flex-1 items-center gap-2">
+              <Switch
+                checked={parakeetAutoStart}
+                onCheckedChange={(v) => void setParakeetAutoStart(v)}
+              />
+              <span className="text-[10.5px] text-muted-foreground">
+                Start the server automatically when dictation needs it
+              </span>
+            </div>
+          </FieldRow>
+          {parakeetAutoStart && (
+            <FieldRow label="Server command">
+              <Input
+                value={parakeetCmdDraft}
+                onChange={(e) => setParakeetCmdDraft(e.target.value)}
+                onBlur={() => {
+                  const v = parakeetCmdDraft.trim();
+                  if (v !== parakeetServerCommand)
+                    void setParakeetServerCommand(v);
+                }}
+                placeholder={PARAKEET_DEFAULT_SERVER_COMMAND}
+                spellCheck={false}
+                className="h-8 font-mono text-[11.5px]"
+              />
+            </FieldRow>
+          )}
         </div>
       )}
     </div>

@@ -1,9 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { WindowControls } from "@/components/WindowControls";
 import { IS_MAC, USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
-import { NotificationBell } from "@/modules/agents";
-import type { Tab } from "@/modules/tabs";
-import { TabBar } from "@/modules/tabs";
+import { AgentTtsToggle, NotificationBell } from "@/modules/agents";
 import {
   CommandIcon,
   Settings01Icon,
@@ -24,23 +22,6 @@ import {
 } from "./SearchInline";
 
 type Props = {
-  tabs: Tab[];
-  activeId: number;
-  onSelect: (id: number) => void;
-  onNew: () => void;
-  onNewBlock: () => void;
-  onNewPrivate: () => void;
-  onNewPreview: () => void;
-  onNewEditor: () => void;
-  onNewGitGraph: () => void;
-  onClose: (id: number) => void;
-  /** Promote a preview (transient) tab to persistent. */
-  onPin: (id: number) => void;
-  /** Set a terminal tab's custom label; empty string resets to default. */
-  onRename: (id: number, title: string) => void;
-  /** Move a dragged tab to a new position (insertion gap index). */
-  onReorder: (fromId: number, toGapIndex: number) => void;
-  onOverrideLanguage?: (id: number, lang: string | null) => void;
   onToggleSidebar: () => void;
   onOpenCommandPalette: () => void;
   onActivateAgent: (tabId: number, leafId: number) => void;
@@ -54,20 +35,6 @@ type Props = {
 const COMPACT_WIDTH = 720;
 
 export function Header({
-  tabs,
-  activeId,
-  onSelect,
-  onNew,
-  onNewBlock,
-  onNewPrivate,
-  onNewPreview,
-  onNewEditor,
-  onNewGitGraph,
-  onClose,
-  onPin,
-  onRename,
-  onReorder,
-  onOverrideLanguage,
   onToggleSidebar,
   onOpenCommandPalette,
   onActivateAgent,
@@ -133,10 +100,13 @@ export function Header({
         </Button>
 
         {!IS_MAC && (
-          <NotificationBell
-            onActivate={onActivateAgent}
-            onActivateLocal={onActivateLocalAgent}
-          />
+          <>
+            <AgentTtsToggle />
+            <NotificationBell
+              onActivate={onActivateAgent}
+              onActivateLocal={onActivateLocalAgent}
+            />
+          </>
         )}
       </div>
 
@@ -149,23 +119,6 @@ export function Header({
         data-tauri-drag-region
       >
         {spaceSwitcher}
-        <TabBar
-          tabs={tabs}
-          activeId={activeId}
-          onSelect={onSelect}
-          onNew={onNew}
-          onNewBlock={onNewBlock}
-          onNewPrivate={onNewPrivate}
-          onNewPreview={onNewPreview}
-          onNewEditor={onNewEditor}
-          onNewGitGraph={onNewGitGraph}
-          onClose={onClose}
-          onPin={onPin}
-          onRename={onRename}
-          onReorder={onReorder}
-          onOverrideLanguage={onOverrideLanguage}
-          compact={compact}
-        />
         <div data-tauri-drag-region className="h-full min-w-2 flex-1" />
       </div>
 
@@ -173,6 +126,7 @@ export function Header({
 
       {IS_MAC && (
         <>
+          <AgentTtsToggle />
           <NotificationBell
             onActivate={onActivateAgent}
             onActivateLocal={onActivateLocalAgent}

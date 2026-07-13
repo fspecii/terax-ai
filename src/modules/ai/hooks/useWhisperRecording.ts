@@ -2,8 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useChatStore } from "../store/chatStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import { ensureParakeetServer } from "../lib/parakeetServer";
 import { transcribeAudio, type SttOptions } from "../lib/stt";
-import type { SttProvider } from "../config";
+import { PARAKEET_DEFAULT_BASE_URL, type SttProvider } from "../config";
+
+const PARAKEET_START_TOAST_ID = "parakeet-server-start";
 
 const MIME_CANDIDATES = [
   "audio/webm;codecs=opus",
@@ -21,7 +24,7 @@ function pickMime(): string | undefined {
 }
 
 function providerNeedsKey(provider: SttProvider): boolean {
-  return provider !== "whispercpp";
+  return provider !== "whispercpp" && provider !== "parakeet";
 }
 
 function getApiKeyForStt(
@@ -44,6 +47,12 @@ export function useWhisperRecording({
   const sttProvider = usePreferencesStore((s) => s.sttProvider);
   const groqSttModel = usePreferencesStore((s) => s.groqSttModel);
   const whispercppBaseURL = usePreferencesStore((s) => s.whispercppBaseURL);
+  const parakeetBaseURL = usePreferencesStore((s) => s.parakeetBaseURL);
+  const parakeetModel = usePreferencesStore((s) => s.parakeetModel);
+  const parakeetAutoStart = usePreferencesStore((s) => s.parakeetAutoStart);
+  const parakeetServerCommand = usePreferencesStore(
+    (s) => s.parakeetServerCommand,
+  );
   const [state, setState] = useState<State>("idle");
   const recRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -61,6 +70,8 @@ export function useWhisperRecording({
   const sttOptions: SttOptions = {
     groqSttModel,
     whispercppBaseURL,
+    parakeetBaseURL,
+    parakeetModel,
   };
 
   const teardownStream = () => {
@@ -96,6 +107,22 @@ export function useWhisperRecording({
         }
         setState("transcribing");
         try {
+          if (sttProvider === "parakeet" && parakeetAutoStart) {
+            const base =
+              parakeetBaseURL.trim().replace(/\/+$/, "") ||
+              PARAKEET_DEFAULT_BASE_URL;
+            try {
+              await ensureParakeetServer(base, parakeetServerCommand, () =>
+                toast.loading("Starting Parakeet server...", {
+                  id: PARAKEET_START_TOAST_ID,
+                  description:
+                    "First run downloads the model, this can take a few minutes.",
+                }),
+              );
+            } finally {
+              toast.dismiss(PARAKEET_START_TOAST_ID);
+            }
+          }
           const text = await transcribeAudio(blob, sttProvider, apiKeys, sttOptions);
           if (text.trim()) onResult(text.trim());
         } catch (e) {
@@ -114,7 +141,18 @@ export function useWhisperRecording({
       teardownStream();
       setState("idle");
     }
-  }, [apiKeys, sttProvider, sttOptions, onResult, state, supported, hasKey]);
+  }, [
+    apiKeys,
+    sttProvider,
+    sttOptions,
+    onResult,
+    state,
+    supported,
+    hasKey,
+    parakeetAutoStart,
+    parakeetBaseURL,
+    parakeetServerCommand,
+  ]);
 
   useEffect(() => {
     return () => {

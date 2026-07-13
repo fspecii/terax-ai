@@ -11,7 +11,7 @@ import {
 } from "@/modules/ai/components/AiStatusBarControls";
 import { LspStatusPill } from "@/modules/lsp";
 import type { WorkspaceEnv } from "@/modules/workspace";
-import { IncognitoIcon } from "@hugeicons/core-free-icons";
+import { IncognitoIcon, Mic01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CwdBreadcrumb } from "./CwdBreadcrumb";
 import { DiagnosticsBadge } from "./DiagnosticsBadge";
@@ -27,6 +27,9 @@ type Props = {
   /** Only rendered when the AI panel is open and a key is loaded. */
   hasComposer: boolean;
   privateActive: boolean;
+  /** Dictate-into-terminal state; renders a status pill while active. */
+  dictationState?: "idle" | "recording" | "transcribing";
+  onDictationClick?: () => void;
 };
 
 export function StatusBar({
@@ -38,6 +41,8 @@ export function StatusBar({
   onOpenMini,
   hasComposer,
   privateActive,
+  dictationState = "idle",
+  onDictationClick,
 }: Props) {
   const panelOpen = useChatStore((s) => s.panelOpen);
   const openPanel = useChatStore((s) => s.openPanel);
@@ -65,6 +70,32 @@ export function StatusBar({
               anything you don't want sent to the model.
             </TooltipContent>
           </Tooltip>
+        ) : null}
+        {dictationState === "recording" ? (
+          <button
+            type="button"
+            onClick={onDictationClick}
+            title="Stop dictation"
+            className="flex shrink-0 cursor-pointer items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 text-[10.5px] font-medium text-red-600 dark:text-red-400"
+          >
+            <HugeiconsIcon
+              icon={Mic01Icon}
+              size={11}
+              strokeWidth={2}
+              className="animate-pulse"
+            />
+            <span>Dictating to terminal</span>
+          </button>
+        ) : dictationState === "transcribing" ? (
+          <span className="flex shrink-0 cursor-default items-center gap-1 rounded-full bg-foreground/[0.07] px-2 py-0.5 text-[10.5px] font-medium text-muted-foreground">
+            <HugeiconsIcon
+              icon={Mic01Icon}
+              size={11}
+              strokeWidth={2}
+              className="animate-pulse"
+            />
+            <span>Transcribing</span>
+          </span>
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-1.5">

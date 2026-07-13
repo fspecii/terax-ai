@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod dictation;
 pub mod fs;
 pub mod git;
 pub mod history;
@@ -8,4 +9,5 @@ pub mod proc;
 pub mod pty;
 pub mod secrets;
 pub mod shell;
+pub mod tts;
 pub mod workspace;

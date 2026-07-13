@@ -14,6 +14,7 @@ import {
   AgentNotificationsBridge,
   nextAttentionTarget,
 } from "@/modules/agents";
+import { stopAgentSpeech } from "@/modules/agents/lib/tts";
 import {
   AgentRunBridge,
   AiMiniWindow,
@@ -24,7 +25,12 @@ import {
   useChatStore,
   useSelectionAskAi,
 } from "@/modules/ai";
+import { useWhisperRecording } from "@/modules/ai/hooks/useWhisperRecording";
 import { AiComposerProvider } from "@/modules/ai/lib/composer";
+import {
+  hideDictationOverlay,
+  showDictationOverlay,
+} from "@/modules/ai/lib/dictationOverlay";
 import { native } from "@/modules/ai/lib/native";
 import { CommandPalette, createCommandItems } from "@/modules/command-palette";
 import {
@@ -44,6 +50,7 @@ import { setLspNavigator } from "@/modules/lsp";
 import type { PreviewPaneHandle } from "@/modules/preview";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import { DICTATION_HOTKEY_KEYCODES } from "@/modules/settings/store";
 import {
   shouldDisablePaneSwapShortcut,
   type ShortcutHandlers,
@@ -68,6 +75,7 @@ import {
 } from "@/modules/spaces";
 import { StatusBar } from "@/modules/statusbar";
 import {
+  TabBar,
   TabSwitcherHud,
   useTabSwitcher,
   useTabs,
@@ -90,9 +98,12 @@ import {
 import { ThemeProvider, useThemeFileEditing } from "@/modules/theme";
 import { UpdaterDialog } from "@/modules/updater";
 import { useWorkspaceEnvStore, type WorkspaceEnv } from "@/modules/workspace";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { SearchAddon } from "@xterm/addon-search";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { CloseDialogs } from "./components/CloseDialogs";
 import {
   TOGGLE_BLOCK_INPUT_EVENT,
@@ -136,6 +147,7 @@ export default function App() {
     updateTab,
     selectByIndex,
     setLeafCwd,
+    setLeafTitle,
     focusPane,
     focusNextPaneInTab,
     swapActivePaneInDirection,
@@ -171,6 +183,151 @@ export default function App() {
   useApplyEditorFontSize();
   useTerminalFileDrop();
   const explorerRef = useRef<FileExplorerHandle>(null);
+
+  // Mirror the active terminal leaf so dictation resolves its insertion target
+  // at transcription time, not at recording start.
+  const dictationLeafRef = useRef<number | null>(null);
+  dictationLeafRef.current = activeLeafId;
+
+  const handleDictationResult = useCallback((text: string) => {
+    const leafId = dictationLeafRef.current;
+    const term = leafId === null ? null : terminalRefs.current.get(leafId);
+    if (!term) {
+      toast.error("Select a terminal tab to receive the dictated text");
+      return;
+    }
+    // Collapse newlines so a transcript can never submit mid-text; Enter is
+    // appended only when the preference asks for it.
+    const cleaned = text.replace(/\s*\n+\s*/g, " ").trim();
+    const pressEnter = usePreferencesStore.getState().dictationPressEnter;
+    term.write(pressEnter ? `${cleaned}\r` : cleaned);
+  }, []);
+
+  const dictation = useWhisperRecording({ onResult: handleDictationResult });
+
+  const toggleDictation = useCallback(() => {
+    if (dictation.recording) {
+      dictation.stop();
+      return;
+    }
+    if (dictation.transcribing) return;
+    if (!dictation.supported) {
+      toast.error("Microphone recording is not supported on this system");
+      return;
+    }
+    if (!dictation.hasKey) {
+      toast.error("Voice input needs an API key. Configure it in Settings.", {
+        action: {
+          label: "Open Settings",
+          onClick: () => void openSettingsWindow("models"),
+        },
+      });
+      return;
+    }
+    // The mic must not record the agent's synthesized voice.
+    stopAgentSpeech();
+    void dictation.start();
+  }, [dictation]);
+
+  const dictationRef = useRef({ toggle: toggleDictation, stop: dictation.stop, recording: dictation.recording });
+  dictationRef.current = { toggle: toggleDictation, stop: dictation.stop, recording: dictation.recording };
+
+  // The Rust poller and the DOM fallback can both observe the same tap while
+  // the window is focused; a short guard keeps that from start+stop racing.
+  const lastTapRef = useRef(0);
+  const tapToggle = useCallback(() => {
+    const now = Date.now();
+    if (now - lastTapRef.current < 350) return;
+    lastTapRef.current = now;
+    dictationRef.current.toggle();
+  }, []);
+
+  // Global single-key hotkey (right Option / right Command). The Rust
+  // listener works system-wide once Input Monitoring is granted; the DOM
+  // fallback keeps the key working while the window is focused.
+  const dictationHotkey = usePreferencesStore((s) => s.dictationHotkey);
+  useEffect(() => {
+    const keycode = DICTATION_HOTKEY_KEYCODES[dictationHotkey];
+    let cleanup: (() => void) | undefined;
+    let cancelled = false;
+    invoke<string>("dictation_hotkey_set", { keycode })
+      .then((status) => {
+        if (cancelled || keycode === null || status === "ok") return;
+        if (status === "needs-permission") {
+          toast.warning(
+            "Grant Input Monitoring so the dictation key works while Terax is in the background.",
+            {
+              id: "dictation-input-monitoring",
+              duration: 12_000,
+              action: {
+                label: "Open Settings",
+                onClick: () =>
+                  void invoke("dictation_open_privacy_settings").catch(
+                    () => {},
+                  ),
+              },
+            },
+          );
+        }
+        const code =
+          dictationHotkey === "right-command" ? "MetaRight" : "AltRight";
+        const onKeyUp = (e: KeyboardEvent) => {
+          if (e.code === code) tapToggle();
+        };
+        window.addEventListener("keyup", onKeyUp);
+        cleanup = () => window.removeEventListener("keyup", onKeyUp);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
+  }, [dictationHotkey, tapToggle]);
+
+  useEffect(() => {
+    const unlistenTap = listen("terax:dictation-tap", tapToggle);
+    const unlistenClick = listen<{ state: string }>(
+      "terax:overlay-click",
+      (e) => {
+        if (e.payload.state === "speaking") stopAgentSpeech();
+        else if (dictationRef.current.recording) dictationRef.current.stop();
+        if (usePreferencesStore.getState().overlayClickFocus) {
+          void getCurrentWindow().setFocus().catch(() => {});
+        }
+      },
+    );
+    return () => {
+      void unlistenTap.then((u) => u());
+      void unlistenClick.then((u) => u());
+    };
+  }, [tapToggle]);
+
+  // Floating always-on-top pill so recording and agent-speech state stay
+  // visible while the main window is hidden or in the background. Dictation
+  // takes priority over TTS playback; clicking the pill stops either.
+  const [ttsSpeaking, setTtsSpeaking] = useState(false);
+  useEffect(() => {
+    const unlisten = listen<boolean>("terax:tts-state", (e) => {
+      setTtsSpeaking(e.payload === true);
+    });
+    return () => {
+      void unlisten.then((u) => u());
+    };
+  }, []);
+
+  useEffect(() => {
+    const state =
+      dictation.state !== "idle"
+        ? dictation.state
+        : ttsSpeaking
+          ? ("speaking" as const)
+          : "idle";
+    if (state === "idle") {
+      hideDictationOverlay().catch(() => {});
+    } else {
+      showDictationOverlay(state).catch(() => {});
+    }
+  }, [dictation.state, ttsSpeaking]);
 
   // Drives session disposal off the pane tree, not React lifecycles —
   // split/unsplit re-mount components but the leaf is still live.
@@ -710,6 +867,7 @@ export default function App() {
       },
       "terminal.toggleInput": () =>
         window.dispatchEvent(new CustomEvent(TOGGLE_BLOCK_INPUT_EVENT)),
+      "terminal.dictate": toggleDictation,
       "blocks.prev": () => navigateFocusedBlocks(-1),
       "blocks.next": () => navigateFocusedBlocks(1),
       "search.focus": () => {
@@ -770,6 +928,7 @@ export default function App() {
       zoomOut,
       zoomReset,
       activateAgentTarget,
+      toggleDictation,
     ],
   );
 
@@ -1138,19 +1297,6 @@ export default function App() {
         <div className="relative flex h-screen flex-col overflow-hidden bg-background text-foreground">
           {!zenMode && (
             <Header
-              tabs={spaceTabs}
-              activeId={activeId}
-              onSelect={setActiveId}
-              onNew={openNewTab}
-              onNewBlock={openNewBlockTab}
-              onNewPrivate={openNewPrivateTab}
-              onNewPreview={() => openPreviewTab("")}
-              onNewEditor={() => setNewEditorOpen(true)}
-              onNewGitGraph={openGitGraphFromContext}
-              onClose={handleClose}
-              onPin={pinTab}
-              onRename={handleRenameTab}
-              onReorder={reorderTabByGap}
               onToggleSidebar={toggleSidebar}
               onOpenCommandPalette={() => openCommandPalette("commands")}
               onActivateAgent={onActivateAgent}
@@ -1159,7 +1305,6 @@ export default function App() {
               spaceSwitcher={spaceSwitcher}
               searchTarget={searchTarget}
               searchRef={searchInlineRef}
-              onOverrideLanguage={setOverrideLanguage}
             />
           )}
 
@@ -1168,6 +1313,35 @@ export default function App() {
               orientation="horizontal"
               className="min-h-0 flex-1"
             >
+              <ResizablePanel
+                id="tabs"
+                defaultSize="200px"
+                minSize="140px"
+                maxSize="320px"
+                collapsible
+                collapsedSize={0}
+              >
+                <div className="flex h-full min-h-0 flex-col border-r border-border/60 bg-card">
+                  <TabBar
+                    vertical
+                    tabs={spaceTabs}
+                    activeId={activeId}
+                    onSelect={setActiveId}
+                    onNew={openNewTab}
+                    onNewBlock={openNewBlockTab}
+                    onNewPrivate={openNewPrivateTab}
+                    onNewPreview={() => openPreviewTab("")}
+                    onNewEditor={() => setNewEditorOpen(true)}
+                    onNewGitGraph={openGitGraphFromContext}
+                    onClose={handleClose}
+                    onPin={pinTab}
+                    onRename={handleRenameTab}
+                    onReorder={reorderTabByGap}
+                    onOverrideLanguage={setOverrideLanguage}
+                  />
+                </div>
+              </ResizablePanel>
+              <ResizableHandle withHandle />
               <ResizablePanel
                 id="sidebar"
                 panelRef={sidebarRef}
@@ -1233,6 +1407,7 @@ export default function App() {
                       registerTerminalHandle={registerTerminalHandle}
                       onSearchReady={handleSearchReady}
                       onCwd={handleTerminalCwd}
+                      onTitle={setLeafTitle}
                       onExit={handleLeafExit}
                       onFocusLeaf={handleFocusLeaf}
                       registerEditorHandle={registerEditorHandle}
@@ -1276,6 +1451,8 @@ export default function App() {
               privateActive={
                 activeTab?.kind === "terminal" && activeTab.private === true
               }
+              dictationState={dictation.state}
+              onDictationClick={toggleDictation}
             />
           )}
 

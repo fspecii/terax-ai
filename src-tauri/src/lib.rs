@@ -1,6 +1,6 @@
 pub mod modules;
 
-use modules::{agent, fs, git, history, lsp, net, pty, secrets, shell, workspace};
+use modules::{agent, dictation, fs, git, history, lsp, net, pty, secrets, shell, tts, workspace};
 use std::sync::Mutex;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 #[cfg(target_os = "macos")]
@@ -35,7 +35,7 @@ fn parse_launch_dir() -> Option<String> {
 #[tauri::command]
 async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Result<(), String> {
     let url_path = match tab.as_deref() {
-        Some(t) if !t.is_empty() => format!("settings.html?tab={}", t),
+        Some(t) if !t.is_empty() => format!("settings.html?tab={t}"),
         _ => "settings.html".to_string(),
     };
 
@@ -250,6 +250,10 @@ pub fn run() {
             shell::shell_bg_logs,
             shell::shell_bg_kill,
             shell::shell_bg_list,
+            dictation::dictation_hotkey_set,
+            dictation::dictation_open_privacy_settings,
+            tts::tts_speak,
+            tts::tts_stop,
             workspace::wsl_list_distros,
             workspace::wsl_default_distro,
             workspace::wsl_home,

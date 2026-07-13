@@ -40,4 +40,31 @@ describe("labelFor (terminal tabs)", () => {
   it("handles Windows-style cwd separators", () => {
     expect(labelFor(terminalTab({ cwd: "C:\\Users\\me\\proj" }))).toBe("proj");
   });
+
+  it("prefers the program's OSC title over the cwd-derived name", () => {
+    expect(
+      labelFor(
+        terminalTab({ cwd: "/Users/me", oscTitle: "claude - terax-ai" }),
+      ),
+    ).toBe("claude - terax-ai");
+  });
+
+  it("keeps a user rename above the program's OSC title", () => {
+    expect(
+      labelFor(
+        terminalTab({
+          cwd: "/Users/me",
+          oscTitle: "claude - terax-ai",
+          customTitle: "Agent",
+        }),
+      ),
+    ).toBe("Agent");
+  });
+
+  it("falls back to the cwd once the OSC title is cleared", () => {
+    const during = terminalTab({ cwd: "/Users/me/proj", oscTitle: "vim" });
+    const after = { ...during, oscTitle: undefined };
+    expect(labelFor(during)).toBe("vim");
+    expect(labelFor(after)).toBe("proj");
+  });
 });

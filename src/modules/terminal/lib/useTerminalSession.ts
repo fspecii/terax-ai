@@ -49,6 +49,7 @@ type Callbacks = {
   onSearchReady?: (addon: SearchAddon) => void;
   onExit?: (code: number) => void;
   onCwd?: (cwd: string) => void;
+  onTitle?: (title: string) => void;
 };
 
 type Session = {
@@ -56,6 +57,8 @@ type Session = {
   ptyOpening: boolean;
   initialCwd: string | undefined;
   lastCwd: string | null;
+  /** Last OSC 0/2 window title from the running program; "" when cleared. */
+  lastTitle: string;
   pendingExit: number | null;
   shellExited: boolean;
   callbacks: Callbacks;
@@ -231,6 +234,32 @@ export function getLeafDraft(leafId: number): string {
 export function setLeafDraft(leafId: number, text: string): void {
   const s = sessions.get(leafId);
   if (s) s.inputDraft = text;
+}
+
+export function readLeafBuffer(
+  leafId: number,
+  maxLines = 200,
+): string | null {
+  const s = sessions.get(leafId);
+  if (!s) return null;
+  const slot = getLiveSlotForLeaf(leafId);
+  if (slot) {
+    const buf = slot.term.buffer.active;
+    const total = buf.length;
+    const lines: string[] = [];
+    const start = Math.max(0, total - maxLines);
+    for (let i = start; i < total; i++) {
+      lines.push(buf.getLine(i)?.translateToString(true) ?? "");
+    }
+    while (lines.length && lines[lines.length - 1] === "") lines.pop();
+    return lines.join("\n");
+  }
+  if (!s.snapshot) return "";
+  const plain = stripAnsi(s.snapshot);
+  const lines = plain.split(/\r?\n/);
+  const tail = lines.slice(-maxLines);
+  while (tail.length && tail[tail.length - 1] === "") tail.pop();
+  return tail.join("\n");
 }
 
 export function setLeafInputActivity(leafId: number, active: boolean): void {
@@ -436,6 +465,7 @@ function ensureSession(
     ptyOpening: false,
     initialCwd,
     lastCwd: null,
+    lastTitle: "",
     pendingExit: null,
     shellExited: false,
     callbacks: {},
@@ -582,6 +612,12 @@ function applyBlockMode(leafId: number, mode: BlockMode): void {
   for (const l of s.blockListeners) l();
 }
 
+function emitTitle(s: Session, title: string): void {
+  if (s.lastTitle === title) return;
+  s.lastTitle = title;
+  s.callbacks.onTitle?.(title);
+}
+
 function bindLeafToSlot(leafId: number, s: Session): void {
   if (!s.container) return;
   const altScreen = s.altScreenAtRelease;
@@ -600,6 +636,7 @@ function bindLeafToSlot(leafId: number, s: Session): void {
     registerOsc: (term) => {
       if (s.blocks) {
         const osc52 = registerOsc52ClipboardHandler(term);
+        const titleSub = term.onTitleChange((t) => emitTitle(s, t));
         const deco = new BlockDecorations(term, {
           onCwd: (next) => {
             markSessionReady(leafId);
@@ -607,7 +644,10 @@ function bindLeafToSlot(leafId: number, s: Session): void {
             s.lastCwd = next;
             s.callbacks.onCwd?.(next);
           },
-          onMode: (mode) => applyBlockMode(leafId, mode),
+          onMode: (mode) => {
+            applyBlockMode(leafId, mode);
+            if (mode === "prompt") emitTitle(s, "");
+          },
           onViewport: () => {
             const set = blockViewportListeners.get(leafId);
             if (set) for (const l of set) l();
@@ -623,6 +663,7 @@ function bindLeafToSlot(leafId: number, s: Session): void {
             s.blockDecorations = null;
             osc52();
             deco.dispose();
+            titleSub.dispose();
             term.textarea?.removeEventListener("focus", onGridFocus);
           },
         ];
@@ -632,9 +673,10 @@ function bindLeafToSlot(leafId: number, s: Session): void {
       // 7 emitted by untrusted command output (remote SSH, `cat` of an
       // attacker file, etc.).
       const shellState = createShellIntegrationState();
-      const prompt = registerPromptTracker(term, shellState, (running) =>
-        onLeafCommandState(leafId, running),
-      );
+      const prompt = registerPromptTracker(term, shellState, (running) => {
+        onLeafCommandState(leafId, running);
+        if (!running) emitTitle(s, "");
+      });
       const cwd = registerCwdHandler(
         term,
         (next) => {
@@ -646,7 +688,8 @@ function bindLeafToSlot(leafId: number, s: Session): void {
         shellState,
       );
       const osc52 = registerOsc52ClipboardHandler(term);
-      return [prompt.dispose, cwd, osc52];
+      const titleSub = term.onTitleChange((t) => emitTitle(s, t));
+      return [prompt.dispose, cwd, osc52, () => titleSub.dispose()];
     },
     onSearchReady: (addon) => s.callbacks.onSearchReady?.(addon),
   });
@@ -654,6 +697,7 @@ function bindLeafToSlot(leafId: number, s: Session): void {
   s.hasSlot = true;
   if (s.blocks) applyBlockMode(leafId, s.blockMode);
   if (s.lastCwd !== null) s.callbacks.onCwd?.(s.lastCwd);
+  if (s.lastTitle) s.callbacks.onTitle?.(s.lastTitle);
   if (s.pendingExit !== null) {
     const code = s.pendingExit;
     s.pendingExit = null;
@@ -817,6 +861,7 @@ type Options = {
   onSearchReady?: (addon: SearchAddon) => void;
   onExit?: (code: number) => void;
   onCwd?: (cwd: string) => void;
+  onTitle?: (title: string) => void;
 };
 
 export function useTerminalSession({
@@ -829,9 +874,10 @@ export function useTerminalSession({
   onSearchReady,
   onExit,
   onCwd,
+  onTitle,
 }: Options) {
-  const cbRef = useRef({ onSearchReady, onExit, onCwd });
-  cbRef.current = { onSearchReady, onExit, onCwd };
+  const cbRef = useRef({ onSearchReady, onExit, onCwd, onTitle });
+  cbRef.current = { onSearchReady, onExit, onCwd, onTitle };
 
   // initialCwd seeds the first PTY spawn only. It must NOT be an effect dep:
   // OSC 7 updates the leaf cwd on every `cd`, and re-running the bind effect
@@ -850,6 +896,7 @@ export function useTerminalSession({
         onSearchReady: (a) => cbRef.current.onSearchReady?.(a),
         onExit: (c) => cbRef.current.onExit?.(c),
         onCwd: (c) => cbRef.current.onCwd?.(c),
+        onTitle: (t) => cbRef.current.onTitle?.(t),
       });
       if (s.visibleNow && s.focusedNow && !s.blocks) focusSlot(leafId);
     });
@@ -950,28 +997,7 @@ export function useTerminalSession({
   const focus = useCallback(() => focusSlot(leafId), [leafId]);
 
   const getBuffer = useCallback(
-    (maxLines = 200): string | null => {
-      const s = sessions.get(leafId);
-      if (!s) return null;
-      const slot = getLiveSlotForLeaf(leafId);
-      if (slot) {
-        const buf = slot.term.buffer.active;
-        const total = buf.length;
-        const lines: string[] = [];
-        const start = Math.max(0, total - maxLines);
-        for (let i = start; i < total; i++) {
-          lines.push(buf.getLine(i)?.translateToString(true) ?? "");
-        }
-        while (lines.length && lines[lines.length - 1] === "") lines.pop();
-        return lines.join("\n");
-      }
-      if (!s.snapshot) return "";
-      const plain = stripAnsi(s.snapshot);
-      const lines = plain.split(/\r?\n/);
-      const tail = lines.slice(-maxLines);
-      while (tail.length && tail[tail.length - 1] === "") tail.pop();
-      return tail.join("\n");
-    },
+    (maxLines = 200): string | null => readLeafBuffer(leafId, maxLines),
     [leafId],
   );
 

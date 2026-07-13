@@ -38,6 +38,8 @@ export type TerminalTab = TabBase & {
   private?: boolean;
   /** User-set label that overrides the cwd-derived name. Survives cd. */
   customTitle?: string;
+  /** Title announced by the running program (OSC 0/2); cleared when it ends. */
+  oscTitle?: string;
 };
 
 export type EditorTab = TabBase & {
@@ -995,6 +997,21 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     });
   }, []);
 
+  const setLeafTitle = useCallback((leafId: number, title: string) => {
+    setTabs((curr) => {
+      let changed = false;
+      const next = curr.map((t) => {
+        if (t.kind !== "terminal" || !hasLeaf(t.paneTree, leafId)) return t;
+        if (t.activeLeafId !== leafId) return t;
+        const oscTitle = title.trim() || undefined;
+        if (t.oscTitle === oscTitle) return t;
+        changed = true;
+        return { ...t, oscTitle };
+      });
+      return changed ? next : curr;
+    });
+  }, []);
+
   const focusPane = useCallback((tabId: number, leafId: number) => {
     setTabs((curr) =>
       curr.map((t) => {
@@ -1192,6 +1209,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     updateTab,
     selectByIndex,
     setLeafCwd,
+    setLeafTitle,
     focusPane,
     focusNextPaneInTab,
     swapActivePaneInDirection,

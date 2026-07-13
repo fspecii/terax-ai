@@ -1114,7 +1114,7 @@ fn push_worktree(
     } else if let Some(ref sha) = head_sha {
         // if detached HEAD with no branch — show shortened SHA as name
         let short = if sha.len() >= 7 { &sha[..7] } else { sha.as_str() };
-        format!("(detached @ {})", short)
+        format!("(detached @ {short})")
     } else {
         return;
     };

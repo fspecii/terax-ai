@@ -5,6 +5,7 @@ import { useEffect, useRef } from "react";
 import { displayAgent } from "../lib/format";
 import { maybeTriggerManagedReview } from "../lib/review";
 import { routeAgentNotification } from "../lib/route";
+import { maybeSpeakAgentResponse } from "../lib/tts";
 import type { AgentSession, AgentSignal } from "../lib/types";
 import { useWindowFocus } from "../lib/useWindowFocus";
 import { useAgentStore } from "../store/agentStore";
@@ -74,13 +75,19 @@ function handleSignal(sig: AgentSignal, ctx: Ctx): void {
     case "attention": {
       store.setStatus(leafId, "waiting");
       const session = store.sessions[leafId];
-      if (session) route(session, "attention", ctx);
+      if (session) {
+        route(session, "attention", ctx);
+        maybeSpeakAgentResponse(leafId);
+      }
       return;
     }
     case "finished": {
       store.setStatus(leafId, "waiting");
       const session = store.sessions[leafId];
-      if (session) route(session, "finished", ctx);
+      if (session) {
+        route(session, "finished", ctx);
+        maybeSpeakAgentResponse(leafId);
+      }
       maybeTriggerManagedReview(leafId);
       return;
     }

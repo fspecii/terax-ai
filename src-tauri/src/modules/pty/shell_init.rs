@@ -339,8 +339,7 @@ mod unix {
             }
             Shell::Other => {
                 log::info!(
-                    "unsupported shell '{}', spawning without integration",
-                    shell_path
+                    "unsupported shell '{shell_path}', spawning without integration"
                 );
             }
         }

@@ -20,6 +20,7 @@ type Props = {
   registerTerminalHandle: TerminalStackProps["registerHandle"];
   onSearchReady: TerminalStackProps["onSearchReady"];
   onCwd: TerminalStackProps["onCwd"];
+  onTitle: TerminalStackProps["onTitle"];
   onExit: TerminalStackProps["onExit"];
   onFocusLeaf: TerminalStackProps["onFocusLeaf"];
   registerEditorHandle: EditorStackProps["registerHandle"];
@@ -46,6 +47,7 @@ export function WorkspaceSurface({
   registerTerminalHandle,
   onSearchReady,
   onCwd,
+  onTitle,
   onExit,
   onFocusLeaf,
   registerEditorHandle,
@@ -83,6 +85,7 @@ export function WorkspaceSurface({
           registerHandle={registerTerminalHandle}
           onSearchReady={onSearchReady}
           onCwd={onCwd}
+          onTitle={onTitle}
           onExit={onExit}
           onFocusLeaf={onFocusLeaf}
         />

@@ -13,6 +13,7 @@ type LeafBundle = {
   setRef: (h: TerminalPaneHandle | null) => void;
   onSearchReady: (leafId: number, addon: SearchAddon) => void;
   onCwd: (leafId: number, cwd: string) => void;
+  onTitle: (leafId: number, title: string) => void;
   onExit: (leafId: number, code: number) => void;
 };
 
@@ -53,6 +54,7 @@ export function PaneTreeView(props: Props) {
           ref={b.setRef}
           onSearchReady={b.onSearchReady}
           onCwd={b.onCwd}
+          onTitle={b.onTitle}
           onExit={b.onExit}
         />
         <DropOverlay leafId={node.id} />

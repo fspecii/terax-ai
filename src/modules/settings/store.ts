@@ -11,6 +11,9 @@ import {
   migrateLegacyCompatEndpoint,
   OLLAMA_DEFAULT_BASE_URL,
   OPENAI_COMPATIBLE_DEFAULT_BASE_URL,
+  PARAKEET_DEFAULT_BASE_URL,
+  PARAKEET_DEFAULT_MODEL,
+  PARAKEET_DEFAULT_SERVER_COMMAND,
   type SttProvider,
   WHISPERCPP_DEFAULT_BASE_URL,
 } from "@/modules/ai/config";
@@ -19,6 +22,22 @@ import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { LazyStore } from "@tauri-apps/plugin-store";
 
 export type ThemePref = "system" | "light" | "dark";
+
+export type DictationHotkey = "off" | "right-option" | "right-command";
+
+export const DICTATION_HOTKEY_LABELS: Record<DictationHotkey, string> = {
+  off: "Off",
+  "right-option": "Right Option (⌥)",
+  "right-command": "Right Command (⌘)",
+};
+
+/** macOS virtual keycodes consumed by the Rust global key listener. */
+export const DICTATION_HOTKEY_KEYCODES: Record<DictationHotkey, number | null> =
+  {
+    off: null,
+    "right-option": 61,
+    "right-command": 54,
+  };
 
 export const DEFAULT_THEME_ID = "terax-default";
 
@@ -142,6 +161,13 @@ export type Preferences = {
   sttProvider: SttProvider;
   groqSttModel: string;
   whispercppBaseURL: string;
+  parakeetBaseURL: string;
+  parakeetModel: string;
+  parakeetAutoStart: boolean;
+  parakeetServerCommand: string;
+  dictationHotkey: DictationHotkey;
+  dictationPressEnter: boolean;
+  overlayClickFocus: boolean;
   favoriteModelIds: string[];
   recentModelIds: string[];
   vimMode: boolean;
@@ -159,6 +185,7 @@ export type Preferences = {
   lastWslDistro: string | null;
   zoomLevel: number;
   agentNotifications: boolean;
+  agentTtsEnabled: boolean;
   defaultWorkspaceEnv: string;
   shortcuts: Record<ShortcutId, KeyBinding[]>;
   editorAutoSave: boolean;
@@ -230,6 +257,13 @@ const KEY_OPENROUTER_MODEL_ID = "openrouterModelId";
 const KEY_STT_PROVIDER = "sttProvider";
 const KEY_GROQ_STT_MODEL = "groqSttModel";
 const KEY_WHISPERCPP_BASE_URL = "whispercppBaseURL";
+const KEY_PARAKEET_BASE_URL = "parakeetBaseURL";
+const KEY_PARAKEET_MODEL = "parakeetModel";
+const KEY_PARAKEET_AUTO_START = "parakeetAutoStart";
+const KEY_PARAKEET_SERVER_COMMAND = "parakeetServerCommand";
+const KEY_DICTATION_HOTKEY = "dictationHotkey";
+const KEY_DICTATION_PRESS_ENTER = "dictationPressEnter";
+const KEY_OVERLAY_CLICK_FOCUS = "overlayClickFocus";
 const KEY_FAVORITE_MODELS = "favoriteModelIds";
 const KEY_RECENT_MODELS = "recentModelIds";
 const KEY_VIM_MODE = "vimMode";
@@ -248,6 +282,7 @@ const KEY_TERMINAL_SCROLLBACK = "terminalScrollback";
 const KEY_LAST_WSL_DISTRO = "lastWslDistro";
 const KEY_ZOOM_LEVEL = "zoomLevel";
 const KEY_AGENT_NOTIFICATIONS = "agentNotifications";
+const KEY_AGENT_TTS_ENABLED = "agentTtsEnabled";
 const KEY_DEFAULT_WORKSPACE_ENV = "defaultWorkspaceEnv";
 const KEY_SHORTCUTS = "shortcuts";
 const KEY_EDITOR_AUTO_SAVE = "editorAutoSave";
@@ -312,6 +347,13 @@ export const DEFAULT_PREFERENCES: Preferences = {
   sttProvider: DEFAULT_STT_PROVIDER,
   groqSttModel: "whisper-large-v3-turbo",
   whispercppBaseURL: WHISPERCPP_DEFAULT_BASE_URL,
+  parakeetBaseURL: PARAKEET_DEFAULT_BASE_URL,
+  parakeetModel: PARAKEET_DEFAULT_MODEL,
+  parakeetAutoStart: true,
+  parakeetServerCommand: PARAKEET_DEFAULT_SERVER_COMMAND,
+  dictationHotkey: "right-option" as DictationHotkey,
+  dictationPressEnter: true,
+  overlayClickFocus: false,
   favoriteModelIds: [],
   recentModelIds: [],
   vimMode: false,
@@ -329,6 +371,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   lastWslDistro: null,
   zoomLevel: 1.0,
   agentNotifications: true,
+  agentTtsEnabled: false,
   defaultWorkspaceEnv: "local",
   shortcuts: {} as Record<ShortcutId, KeyBinding[]>,
   editorAutoSave: false,
@@ -448,6 +491,26 @@ export async function loadPreferences(): Promise<Preferences> {
     whispercppBaseURL:
       get<string>(KEY_WHISPERCPP_BASE_URL) ??
       DEFAULT_PREFERENCES.whispercppBaseURL,
+    parakeetBaseURL:
+      get<string>(KEY_PARAKEET_BASE_URL) ??
+      DEFAULT_PREFERENCES.parakeetBaseURL,
+    parakeetModel:
+      get<string>(KEY_PARAKEET_MODEL) ?? DEFAULT_PREFERENCES.parakeetModel,
+    parakeetAutoStart:
+      get<boolean>(KEY_PARAKEET_AUTO_START) ??
+      DEFAULT_PREFERENCES.parakeetAutoStart,
+    parakeetServerCommand:
+      get<string>(KEY_PARAKEET_SERVER_COMMAND) ??
+      DEFAULT_PREFERENCES.parakeetServerCommand,
+    dictationHotkey:
+      get<DictationHotkey>(KEY_DICTATION_HOTKEY) ??
+      DEFAULT_PREFERENCES.dictationHotkey,
+    dictationPressEnter:
+      get<boolean>(KEY_DICTATION_PRESS_ENTER) ??
+      DEFAULT_PREFERENCES.dictationPressEnter,
+    overlayClickFocus:
+      get<boolean>(KEY_OVERLAY_CLICK_FOCUS) ??
+      DEFAULT_PREFERENCES.overlayClickFocus,
     favoriteModelIds: (
       get<string[]>(KEY_FAVORITE_MODELS) ?? DEFAULT_PREFERENCES.favoriteModelIds
     ).filter(isKnownModelId),
@@ -496,6 +559,9 @@ export async function loadPreferences(): Promise<Preferences> {
     agentNotifications:
       get<boolean>(KEY_AGENT_NOTIFICATIONS) ??
       DEFAULT_PREFERENCES.agentNotifications,
+    agentTtsEnabled:
+      get<boolean>(KEY_AGENT_TTS_ENABLED) ??
+      DEFAULT_PREFERENCES.agentTtsEnabled,
     defaultWorkspaceEnv:
       get<string>(KEY_DEFAULT_WORKSPACE_ENV) ??
       DEFAULT_PREFERENCES.defaultWorkspaceEnv,
@@ -703,6 +769,34 @@ export async function setWhispercppBaseURL(value: string): Promise<void> {
   await writePref(KEY_WHISPERCPP_BASE_URL, value.trim());
 }
 
+export async function setParakeetBaseURL(value: string): Promise<void> {
+  await writePref(KEY_PARAKEET_BASE_URL, value.trim());
+}
+
+export async function setParakeetModel(value: string): Promise<void> {
+  await writePref(KEY_PARAKEET_MODEL, value.trim());
+}
+
+export async function setParakeetAutoStart(value: boolean): Promise<void> {
+  await writePref(KEY_PARAKEET_AUTO_START, value);
+}
+
+export async function setParakeetServerCommand(value: string): Promise<void> {
+  await writePref(KEY_PARAKEET_SERVER_COMMAND, value.trim());
+}
+
+export async function setDictationHotkey(value: DictationHotkey): Promise<void> {
+  await writePref(KEY_DICTATION_HOTKEY, value);
+}
+
+export async function setDictationPressEnter(value: boolean): Promise<void> {
+  await writePref(KEY_DICTATION_PRESS_ENTER, value);
+}
+
+export async function setOverlayClickFocus(value: boolean): Promise<void> {
+  await writePref(KEY_OVERLAY_CLICK_FOCUS, value);
+}
+
 export async function setFavoriteModelIds(value: string[]): Promise<void> {
   await writePref(KEY_FAVORITE_MODELS, value);
 }
@@ -836,6 +930,10 @@ export async function setAgentNotifications(value: boolean): Promise<void> {
   await writePref(KEY_AGENT_NOTIFICATIONS, value);
 }
 
+export async function setAgentTtsEnabled(value: boolean): Promise<void> {
+  await writePref(KEY_AGENT_TTS_ENABLED, value);
+}
+
 export async function setDefaultWorkspaceEnv(value: string): Promise<void> {
   await writePref(KEY_DEFAULT_WORKSPACE_ENV, value);
 }
@@ -887,6 +985,13 @@ export async function onPreferencesChange(
     [KEY_STT_PROVIDER]: "sttProvider",
     [KEY_GROQ_STT_MODEL]: "groqSttModel",
     [KEY_WHISPERCPP_BASE_URL]: "whispercppBaseURL",
+    [KEY_PARAKEET_BASE_URL]: "parakeetBaseURL",
+    [KEY_PARAKEET_MODEL]: "parakeetModel",
+    [KEY_PARAKEET_AUTO_START]: "parakeetAutoStart",
+    [KEY_PARAKEET_SERVER_COMMAND]: "parakeetServerCommand",
+    [KEY_DICTATION_HOTKEY]: "dictationHotkey",
+    [KEY_DICTATION_PRESS_ENTER]: "dictationPressEnter",
+    [KEY_OVERLAY_CLICK_FOCUS]: "overlayClickFocus",
     [KEY_FAVORITE_MODELS]: "favoriteModelIds",
     [KEY_RECENT_MODELS]: "recentModelIds",
     [KEY_VIM_MODE]: "vimMode",
@@ -904,6 +1009,7 @@ export async function onPreferencesChange(
     [KEY_LAST_WSL_DISTRO]: "lastWslDistro",
     [KEY_ZOOM_LEVEL]: "zoomLevel",
     [KEY_AGENT_NOTIFICATIONS]: "agentNotifications",
+    [KEY_AGENT_TTS_ENABLED]: "agentTtsEnabled",
     [KEY_DEFAULT_WORKSPACE_ENV]: "defaultWorkspaceEnv",
     [KEY_SHORTCUTS]: "shortcuts",
     [KEY_EDITOR_AUTO_SAVE]: "editorAutoSave",

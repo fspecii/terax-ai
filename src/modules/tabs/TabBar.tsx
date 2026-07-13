@@ -65,6 +65,8 @@ type Props = {
   onReorder: (fromId: number, toGapIndex: number) => void;
   onOverrideLanguage?: (id: number, lang: string | null) => void;
   compact?: boolean;
+  /** Render as a vertical list (sidebar) instead of the horizontal strip. */
+  vertical?: boolean;
 };
 
 export function TabBar({
@@ -83,6 +85,7 @@ export function TabBar({
   onReorder,
   onOverrideLanguage,
   compact,
+  vertical,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -92,7 +95,7 @@ export function TabBar({
   const [showAllLanguages, setShowAllLanguages] = useState(false);
   const drag = useRef<{
     pointerId: number;
-    startX: number;
+    start: number;
     fromId: number;
     active: boolean;
   } | null>(null);
@@ -113,8 +116,8 @@ export function TabBar({
 
   // Single shared pill slides to the active tab instead of each tab toggling
   // its own background. Measured relative to the list (its offsetParent) so it
-  // scrolls with the strip for free; transform/width only, no layout on siblings.
-  const [pill, setPill] = useState<{ left: number; width: number } | null>(
+  // scrolls with the strip for free; transform/size only, no layout on siblings.
+  const [pill, setPill] = useState<{ start: number; size: number } | null>(
     null,
   );
   const [pillReady, setPillReady] = useState(false);
@@ -123,8 +126,14 @@ export function TabBar({
     const el = listRef.current?.querySelector<HTMLElement>(
       '[data-tab-active="true"]',
     );
-    setPill(el ? { left: el.offsetLeft, width: el.offsetWidth } : null);
-  }, []);
+    setPill(
+      el
+        ? vertical
+          ? { start: el.offsetTop, size: el.offsetHeight }
+          : { start: el.offsetLeft, size: el.offsetWidth }
+        : null,
+    );
+  }, [vertical]);
 
   useLayoutEffect(() => {
     measurePill();
@@ -147,13 +156,16 @@ export function TabBar({
     }
   }, [pill, pillReady]);
 
-  const gapAtX = (clientX: number) => {
+  const gapAt = (clientX: number, clientY: number) => {
     const els = Array.from(
       scrollRef.current?.querySelectorAll<HTMLElement>("[data-tab-id]") ?? [],
     );
     for (let i = 0; i < els.length; i++) {
       const r = els[i].getBoundingClientRect();
-      if (clientX < r.left + r.width / 2) return i;
+      if (
+        vertical ? clientY < r.top + r.height / 2 : clientX < r.left + r.width / 2
+      )
+        return i;
     }
     return els.length;
   };
@@ -167,8 +179,10 @@ export function TabBar({
     document.body.style.userSelect = "";
   };
 
-  // Horizontal wheel scroll without holding shift.
+  // Horizontal wheel scroll without holding shift. Vertical lists scroll
+  // natively.
   useEffect(() => {
+    if (vertical) return;
     const el = scrollRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
@@ -179,7 +193,7 @@ export function TabBar({
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, []);
+  }, [vertical]);
 
   // Keep the active tab visible after selection / open.
   useEffect(() => {
@@ -192,28 +206,56 @@ export function TabBar({
   return (
     <div
       ref={scrollRef}
-      data-tauri-drag-region
-      className="min-w-0 shrink overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      data-tauri-drag-region={vertical ? undefined : true}
+      className={cn(
+        vertical
+          ? "min-h-0 w-full overflow-y-auto"
+          : "min-w-0 shrink overflow-x-auto",
+        "[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+      )}
     >
-      <div className="flex w-max items-center gap-0.5">
+      <div
+        className={cn(
+          vertical
+            ? "flex w-full flex-col items-stretch gap-0.5 p-1.5"
+            : "flex w-max items-center gap-0.5",
+        )}
+      >
         <Tabs
           value={String(activeId)}
           onValueChange={(v) => onSelect(Number(v))}
+          orientation={vertical ? "vertical" : "horizontal"}
+          className={vertical ? "w-full" : undefined}
         >
           <TabsList
             ref={listRef}
-            className="relative h-7 w-max gap-0.5 bg-transparent p-0"
+            className={cn(
+              "relative gap-0.5 bg-transparent p-0",
+              vertical ? "h-auto w-full flex-col items-stretch" : "h-7 w-max",
+            )}
           >
             <span
               aria-hidden
-              className="pointer-events-none absolute left-0 top-1/2 h-7 rounded-md bg-foreground/[0.07] shadow-sm ring-1 ring-inset ring-foreground/[0.05]"
+              className={cn(
+                "pointer-events-none absolute rounded-md bg-foreground/[0.07] shadow-sm ring-1 ring-inset ring-foreground/[0.05]",
+                vertical ? "inset-x-0 top-0" : "left-0 top-1/2 h-7",
+              )}
               style={
                 pill
                   ? {
-                      width: pill.width,
-                      transform: `translate(${pill.left}px, -50%)`,
+                      ...(vertical
+                        ? {
+                            height: pill.size,
+                            transform: `translateY(${pill.start}px)`,
+                          }
+                        : {
+                            width: pill.size,
+                            transform: `translate(${pill.start}px, -50%)`,
+                          }),
                       transitionProperty: pillReady
-                        ? "transform, width"
+                        ? vertical
+                          ? "transform, height"
+                          : "transform, width"
                         : "none",
                       transitionDuration: "var(--dur-base)",
                       transitionTimingFunction: "var(--ease-premium)",
@@ -239,12 +281,13 @@ export function TabBar({
               if (editingId === t.id && t.kind === "terminal") {
                 return (
                   <Fragment key={t.id}>
-                    {showGap(i) && <DropIndicator />}
+                    {showGap(i) && <DropIndicator vertical={vertical} />}
                     <div
                       data-tab-id={t.id}
                       className={cn(
                         "flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent text-xs text-foreground",
                         compact ? "px-1.5" : "px-2",
+                        vertical && "w-full",
                       )}
                     >
                       <TabIcon tab={t} />
@@ -258,7 +301,7 @@ export function TabBar({
                       />
                     </div>
                     {i === tabs.length - 1 && showGap(tabs.length) && (
-                      <DropIndicator />
+                      <DropIndicator vertical={vertical} />
                     )}
                   </Fragment>
                 );
@@ -275,7 +318,7 @@ export function TabBar({
                       return;
                     drag.current = {
                       pointerId: e.pointerId,
-                      startX: e.clientX,
+                      start: vertical ? e.clientY : e.clientX,
                       fromId: t.id,
                       active: false,
                     };
@@ -285,13 +328,14 @@ export function TabBar({
                     const st = drag.current;
                     if (!st || st.pointerId !== e.pointerId) return;
                     if (!st.active) {
-                      if (Math.abs(e.clientX - st.startX) < 4) return;
+                      const pos = vertical ? e.clientY : e.clientX;
+                      if (Math.abs(pos - st.start) < 4) return;
                       st.active = true;
                       setDraggingId(st.fromId);
                       document.body.style.userSelect = "none";
                     }
                     e.preventDefault();
-                    setDropGap(gapAtX(e.clientX));
+                    setDropGap(gapAt(e.clientX, e.clientY));
                   }}
                   onPointerUp={(e) => {
                     const st = drag.current;
@@ -332,17 +376,26 @@ export function TabBar({
                       ? "text-foreground dark:text-foreground"
                       : "text-muted-foreground hover:text-foreground/80 dark:text-muted-foreground",
                     draggingId === t.id && "opacity-50",
-                    compact
-                      ? "px-1.5!"
-                      : tabs.length === 1
+                    vertical && "h-7! w-full rounded-md! justify-between! py-0!",
+                    vertical
+                      ? tabs.length === 1
                         ? "px-2!"
-                        : "ps-2! pe-1!",
+                        : "ps-2! pe-1!"
+                      : compact
+                        ? "px-1.5!"
+                        : tabs.length === 1
+                          ? "px-2!"
+                          : "ps-2! pe-1!",
                   )}
                 >
                   <span
                     className={cn(
                       "flex min-w-0 items-center gap-1.5",
-                      compact ? "max-w-48" : "max-w-80",
+                      vertical
+                        ? "flex-1"
+                        : compact
+                          ? "max-w-48"
+                          : "max-w-80",
                     )}
                   >
                     {t.kind === "editor" ? (
@@ -518,10 +571,10 @@ export function TabBar({
 
               return (
                 <Fragment key={t.id}>
-                  {showGap(i) && <DropIndicator />}
+                  {showGap(i) && <DropIndicator vertical={vertical} />}
                   {tabNode}
                   {i === tabs.length - 1 && showGap(tabs.length) && (
-                    <DropIndicator />
+                    <DropIndicator vertical={vertical} />
                   )}
                 </Fragment>
               );
@@ -533,7 +586,10 @@ export function TabBar({
             <Button
               variant="ghost"
               size="icon"
-              className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+              className={cn(
+                "size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground",
+                vertical && "w-full",
+              )}
               title="New tab"
             >
               <HugeiconsIcon icon={PlusSignIcon} size={14} strokeWidth={2} />
@@ -610,11 +666,14 @@ export function TabBar({
   );
 }
 
-function DropIndicator() {
+function DropIndicator({ vertical }: { vertical?: boolean }) {
   return (
     <span
       aria-hidden
-      className="my-0.5 w-0.5 shrink-0 self-stretch rounded-full bg-primary"
+      className={cn(
+        "shrink-0 self-stretch rounded-full bg-primary",
+        vertical ? "mx-0.5 h-0.5" : "my-0.5 w-0.5",
+      )}
     />
   );
 }
