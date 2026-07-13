@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Terax",
-  "version": "0.8.5",
+  "version": "0.9.0",
   "identifier": "app.crynta.terax",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -29,7 +29,9 @@
       "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: https://asset.localhost blob:; media-src 'self' asset: https://asset.localhost blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https: http://localhost:* http://127.0.0.1:*; frame-src 'self' http: https: asset: https://asset.localhost; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'",
       "assetProtocol": {
         "enable": true,
-        "scope": ["**"]
+        "scope": [
+          "**"
+        ]
       }
     }
   },
@@ -89,9 +91,9 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNCQUJGRDhBQjYwRTM0NjkKUldScE5BNjJpdjJyT3dIN0dqbUpHaDA4QW1GaDVmTTllRXdZVk96dFNTRUZ3Y2hiVGszYjFqRloK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUwRjYzMjYyNDNFRjVEMkQKUldRdFhlOURZakwyNElnQkV0VDZ6S1pIbzJoc2l4RGVpUE9JVkgyQi9tbWo2U3lVYWh3SjhNYysK",
       "endpoints": [
-        "https://github.com/crynta/terax-ai/releases/latest/download/latest.json"
+        "https://github.com/fspecii/terax-ai/releases/latest/download/latest.json"
       ]
     }
   }

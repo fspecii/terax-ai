@@ -62,8 +62,10 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      # Skipped when no Apple secrets are configured (unsigned fork builds);
+      # Tauri then falls back to ad-hoc signing without notarization.
       - name: Write Apple API key to disk
-        if: startsWith(matrix.platform, 'macos')
+        if: startsWith(matrix.platform, 'macos') && env.KEY_CONTENT != ''
         shell: bash
         env:
           KEY_CONTENT: ${{ secrets.APPLE_API_KEY_PATH }}
@@ -89,7 +91,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Terax ${{ github.ref_name }}"
-          releaseBody: "See the assets to download and install. Auto-update is built in."
+          releaseBody: "See the assets to download and install. Auto-update is built in. These builds are not code-signed: on macOS right-click the app and choose Open on first launch (or run xattr -cr /Applications/Terax.app); on Windows click More info, then Run anyway."
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
