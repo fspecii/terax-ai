@@ -2,7 +2,7 @@
   <img src="public/logo.png" width="144" height="144" alt="Terax" />
   <h1>Terax</h1>
 
-  <p><strong>Lightweight Terminal-first AI-native dev workspace.</strong></p>
+  <p><strong>Lightweight Terminal-first AI-native dev workspace. Voice-first fork.</strong></p>
 
   <p>
     <img src="https://img.shields.io/github/v/release/crynta/terax-ai?label=version&color=blue" alt="version" />
@@ -23,6 +23,33 @@
 ---
 
 Terax is a lightweight open-source terminal (ADE) built on Tauri 2 + Rust and React 19. A native PTY backend with a WebGL renderer, an agentic AI side-panel that runs against your own keys or fully local models, plus a code editor, file explorer, source control with a git graph, and a web preview pane built in. About 7-8 MB on disk. No telemetry. No account.
+
+> This is a customized fork of [crynta/terax-ai](https://github.com/crynta/terax-ai) focused on a hands-free voice workflow. All credit for the base terminal goes to the upstream project. To get the fork-only features below, build from source (see [Build from source](#build-from-source)).
+
+## What this fork adds
+
+### Local voice dictation
+
+- **Parakeet (local)** speech-to-text provider: transcription runs entirely on your machine through an OpenAI-compatible local server (mlx-audio, parakeet-mlx-server). Terax starts the server automatically when dictation needs it and refuses any non-loopback endpoint, so recorded audio never leaves your computer.
+- **Single-key hotkey**: tap right Option or right Command to start dictating, tap again to stop. Works system-wide, even while Terax is in the background.
+- The transcript is typed into the active terminal, with an optional automatic Enter so dictated commands run immediately.
+- Whisper.cpp (local), OpenAI, and Groq remain available as alternative providers.
+
+### Spoken agent responses
+
+- A speaker toggle next to the notification bell reads coding agent replies (Claude Code, Codex, Gemini CLI) aloud with the built-in OS text-to-speech engine.
+- Only the agent's last message is spoken; TUI borders, spinners, and status lines are stripped first.
+- Dictate a task, hear the answer: a full voice conversation with your coding agent, no cloud TTS involved.
+
+### Floating status overlay
+
+- An always-on-top, non-focusable pill shows Recording, Transcribing, or Speaking, visible over any app.
+- Click it to stop dictation or speech without losing focus from the window you are working in (focusing Terax on click is an opt-in setting).
+
+### UI improvements
+
+- Terminal tabs live in their own vertical, resizable panel to the left of the file explorer.
+- Tabs adopt the running program's title (OSC 0/2), like Terminal.app, and fall back to the working directory when the command ends.
 
 ## Screenshots
 
@@ -145,6 +172,10 @@ Tauri 2, Rust, `portable-pty`, React 19, TypeScript, Vite, xterm.js, CodeMirror 
 ## Contributing
 
 Issues and PRs are welcome! Feel free to open issues, suggest features, or submit pull requests. See [CONTRIBUTING.md](CONTRIBUTING.md) and the [architecture docs](docs/README.md) for more details.
+
+## Maintained by
+
+This fork is maintained by [Web Design Studio London](http://webdesignstudio.london/), a web design and development agency. If you ever need a website, a web app, or custom development work, we would love to hear from you.
 
 ## License
 
